@@ -8,6 +8,15 @@
 
 [English](README.md) · **Русский**
 
+<br>
+
+<img src="photos/protected.png" width="260" alt="Защищено">
+<img src="photos/blocked.png" width="260" alt="Заблокировано">
+<img src="photos/no_conection.png" width="260" alt="Офлайн">
+
+<img src="photos/ip_whitelist.png" width="390" alt="IP Whitelist">
+<img src="photos/add_model.png" width="390" alt="Модель по умолчанию">
+
 </div>
 
 ---

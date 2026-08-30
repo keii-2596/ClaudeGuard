@@ -8,6 +8,15 @@ Blocks the **Claude Desktop** app, the **Claude Code CLI** (`claude`) and every 
 
 **English** · [Русский](README.ru.md)
 
+<br>
+
+<img src="photos/protected.png" width="260" alt="Protected">
+<img src="photos/blocked.png" width="260" alt="Blocked">
+<img src="photos/no_conection.png" width="260" alt="Offline">
+
+<img src="photos/ip_whitelist.png" width="390" alt="IP Whitelist">
+<img src="photos/add_model.png" width="390" alt="Default Model">
+
 </div>
 
 ---
