@@ -34,14 +34,16 @@ try {
     if ($LASTEXITCODE -eq 0) { throw 'WFP failed to block loopback connection' }
     & $Probe $Port6 ipv6
     if ($LASTEXITCODE -eq 0) { throw 'WFP failed to block IPv6 loopback connection' }
-    @{schema=2; producer_pid=$PID; producer_start=(([DateTimeOffset](Get-Process -Id $PID).StartTime.ToUniversalTime()).ToUnixTimeMilliseconds()/1000.0); allowed=$true; expires_at=([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()+60); configured_paths=@($Probe.ToLowerInvariant())} | ConvertTo-Json | Set-Content $Request -Encoding UTF8
+    $Producer = Start-Process $PowerShell -WindowStyle Hidden -ArgumentList '-NoProfile -Command Start-Sleep -Seconds 120' -PassThru
+    @{schema=2; producer_pid=$Producer.Id; producer_start=(([DateTimeOffset]$Producer.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds()/1000.0); allowed=$true; expires_at=([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()+60); configured_paths=@($Probe.ToLowerInvariant())} | ConvertTo-Json | Set-Content $Request -Encoding UTF8
     & $PowerShell -NoProfile -ExecutionPolicy Bypass -File $Helper -Manifest $Manifest -Once
     if ($LASTEXITCODE -ne 0) { throw 'WFP allow setup failed' }
     & $Probe $Port
     if ($LASTEXITCODE -ne 0) { throw 'WFP failed to release own filter' }
     & $Probe $Port6 ipv6
     if ($LASTEXITCODE -ne 0) { throw 'WFP failed to release IPv6 filter' }
-    Remove-Item $Request
+    Stop-Process -Id $Producer.Id -Force
+    $Producer.WaitForExit()
     & $PowerShell -NoProfile -ExecutionPolicy Bypass -File $Helper -Manifest $Manifest -Once
     if ($LASTEXITCODE -ne 0) { throw 'WFP stale-lease setup failed' }
     & $Probe $Port
@@ -74,6 +76,7 @@ try {
     # Already removed; avoid trying to delete the direct test sublayer twice.
     $Manifest = $null
 } finally {
+    if ($Producer -and -not $Producer.HasExited) { $Producer.Kill() }
     if ($Manifest) { & $PowerShell -NoProfile -ExecutionPolicy Bypass -File $Helper -Manifest $Manifest -Remove }
     $Listener.Stop()
     $Listener6.Stop()

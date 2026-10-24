@@ -73,17 +73,21 @@ for line in sys.stdin:
             actual = child.stdout.readline().strip()
             assert actual == expected, (actual, expected)
         attempt('blocked')
-        atomic_json(request, {'schema': 2, 'producer_pid': child.pid, 'producer_start': started, 'allowed': True, 'configured_paths': paths, 'expires_at': time.time() + 30})
+        producer = subprocess.Popen(['/usr/bin/sleep', '120'], preexec_fn=demote)
+        producer_started = Path(f'/proc/{producer.pid}/stat').read_text().rsplit(')', 1)[1].split()[19]
+        atomic_json(request, {'schema': 2, 'producer_pid': producer.pid, 'producer_start': producer_started, 'allowed': True, 'configured_paths': paths, 'expires_at': time.time() + 30})
         os.chown(request, uid, gid)
         wait(lambda s: s.get('applied_state') == 'allowed')
         attempt('allowed')
-        request.unlink()
+        producer.kill(); producer.wait()
         wait(lambda s: s.get('applied_state') == 'blocked')
         attempt('blocked')
         print('Linux kernel blocked/allowed/reblocked loopback sockets for enrolled process')
     finally:
         if child:
             child.kill(); child.wait()
+        if 'producer' in locals() and producer.poll() is None:
+            producer.kill(); producer.wait()
         helper.terminate(); helper.wait(timeout=10)
         server.close()
         subprocess.run(['nft', 'delete', 'table', 'inet', 'claudeguard_' + installation], check=True)

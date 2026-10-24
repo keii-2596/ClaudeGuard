@@ -31,12 +31,14 @@ def status(settings, data=None):
     try:
         result = json.loads((directory(settings) / 'status.json').read_text(encoding='utf-8-sig'))
         if not isinstance(result, dict) or time.time() - result['updated_at'] > 4 or result['updated_at'] > time.time() + 1:
-            raise ValueError('网络助手状态过期')
+            return {'ready': False, 'retryable': True, 'applied_state': 'unknown', 'error': '网络助手状态过期，正在等待恢复'}
         if not result.get('ready'):
             return result
         if result.get('configured_paths') != paths(data):
             raise ValueError('程序路径已变化，请重新安装网络助手')
         return result
+    except FileNotFoundError:
+        return {'ready': False, 'retryable': True, 'applied_state': 'unknown', 'error': '正在等待网络助手启动'}
     except (OSError, ValueError, TypeError, KeyError) as exc:
         return {'ready': False, 'applied_state': 'unknown', 'error': str(exc)}
 
@@ -63,7 +65,7 @@ def wait_allowed(settings, data, timeout=90):
         state = status(settings, data)
         if state.get('ready') and state.get('applied_state') == 'allowed':
             return state
-        if state.get('error'):
+        if state.get('error') and not state.get('retryable'):
             raise RuntimeError('网络助手未就绪：' + state['error'])
         time.sleep(0.1)
     raise RuntimeError('网络助手未确认放行，已取消启动。请检查 daemon 日志和 network status。')
