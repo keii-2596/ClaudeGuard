@@ -7,7 +7,7 @@ mkdir -p "$TARGET"
 [ "$SOURCE_DIR" != "$TARGET" ] || { echo "请从源码目录运行安装器。"; exit 1; }
 python3 -m venv "$TARGET/venv"
 "$TARGET/venv/bin/python" -m pip install -r "$SOURCE_DIR/portable/requirements.txt"
-cp -R "$SOURCE_DIR/portable" "$SOURCE_DIR/src" "$TARGET/"
+cp -R "$SOURCE_DIR/portable" "$SOURCE_DIR/src" "$SOURCE_DIR/native" "$SOURCE_DIR/scripts" "$TARGET/"
 mkdir -p "$HOME/.local/bin" "${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 # Use Python to quote paths without treating them as shell source.
 "$TARGET/venv/bin/python" - "$TARGET" "$HOME/.local/bin/claudeguard" <<'PY'

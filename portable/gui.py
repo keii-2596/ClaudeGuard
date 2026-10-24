@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 
 from src import policy
+from portable import network
 from portable.platforms import autostart, stop_tree
 from portable.runtime import check, daemon_process, launch, start_daemon
 
@@ -87,6 +88,8 @@ def show(settings):
             ttk.Button(row, text="浏览…", command=browse).pack(side="right")
     cli_proxy = tk.BooleanVar(value=data["cli_http_proxy_enabled"])
     ttk.Checkbutton(advanced, text="Claude Code 始终使用 HTTP 代理（下次启动生效）", variable=cli_proxy).pack(anchor="w", pady=8)
+    system_network = tk.BooleanVar(value=data["network_guard_enabled"])
+    ttk.Checkbutton(advanced, text="启用系统网络拦截（须先安装网络助手）", variable=system_network).pack(anchor="w", pady=8)
     enabled = tk.BooleanVar(value=data["protection_enabled"])
     ttk.Checkbutton(frame, text="开启防护", variable=enabled).pack(anchor="w", pady=10)
 
@@ -98,6 +101,7 @@ def show(settings):
             current['access_mode'] = next(key for key, label in access_labels.items() if label == access.get())
             current['detect_ip_change'] = jump.get()
             current['cli_http_proxy_enabled'] = cli_proxy.get()
+            current['network_guard_enabled'] = system_network.get()
             current.update({"allowed_ips": [x.strip() for x in ips.get("1.0", "end").splitlines() if x.strip()],
                             "ip_check_mode": next(k for k, v in LABELS.items() if v == mode.get()),
                             "protection_enabled": enabled.get()})
@@ -168,6 +172,23 @@ def show(settings):
         autostart(python, Path(__file__).with_name("main.py").resolve(), settings.path.resolve(), on)
         status.set("登录自启动已开启。" if on else "登录自启动已关闭。")
 
+    def network_action(remove=False):
+        if not save():
+            return
+        network.setup(settings, remove=remove)
+        if remove:
+            system_network.set(False)
+            save()
+        status.set("网络助手已卸载。" if remove else "网络助手已安装，请勾选系统网络拦截并启动守护。")
+
+    def network_status():
+        state = network.status(settings)
+        status.set("系统网络助手：" + (state.get('applied_state', 'unknown') if state.get('ready') else state.get('error', '未安装')))
+
+    network_row = ttk.Frame(advanced)
+    network_row.pack(fill="x", pady=5)
+    for label, fn in [("安装/修复网络助手…", network_action), ("卸载网络助手…", lambda: network_action(True)), ("网络助手状态", network_status)]:
+        ttk.Button(network_row, text=label, command=lambda cb=fn: action(cb)).pack(side="left", padx=(0, 6))
     row = ttk.Frame(frame)
     row.pack(fill="x", pady=5)
     for title, callback in [("保存", save), ("检测出口", inspect), ("启动守护", start), ("停止守护", stop)]:
@@ -191,5 +212,5 @@ def show(settings):
     row.pack(fill="x", pady=5)
     ttk.Button(row, text="开启登录自启动", command=lambda: action(lambda: boot(True))).pack(side="left", padx=(0, 6))
     ttk.Button(row, text="关闭登录自启动", command=lambda: action(lambda: boot(False))).pack(side="left")
-    ttk.Label(frame, text="本版通过进程监控拦截，不修改系统防火墙。直接启动原程序可能在被终止前发出请求。", wraplength=620).pack(anchor="w", pady=8)
+    ttk.Label(frame, text="系统网络拦截需先安装网络助手。Linux 请通过受保护入口启动，原始入口仍存在启动后的检测窗口。", wraplength=620).pack(anchor="w", pady=8)
     root.mainloop()

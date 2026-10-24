@@ -121,7 +121,7 @@ claudeguard ack-ip-change
 
 Windows 使用 [Windows/Linux 安装说明](windows-linux.md) 中的 Python 入口调用相同的子命令。
 
-这些规则共用同一套判断代码。Windows/Linux 版仍通过启动检查和进程监控拦截，不会因此自动获得系统防火墙阻断能力。
+这些规则共用同一套判断代码。Windows/Linux 的系统网络阻断需要额外安装网络助手，见 [Windows/Linux 网络助手](windows-linux.md#安装系统网络助手)。
 
 ## 配置示例
 

@@ -16,6 +16,7 @@ from src.ip_checker import perform_ip_check
 from src import policy
 from src.proxy_config import cli_environment
 from portable.config import default_path
+from portable import network
 
 
 def check(data, policy_dir=None):
@@ -59,8 +60,11 @@ def daemon(settings):
         while True:
             try:
                 data = settings.load()
+                if data != last_data and data.get('network_guard_enabled'):
+                    network.publish(settings, data, {'state': 'blocked'})
                 last_data = data
                 verdict = check(data, settings.path.parent)
+                verdict['network'] = network.publish(settings, data, verdict)
                 # Unverified exits also stop protected processes, including on resume.
                 errors = []
                 if verdict["state"] not in ("allowed", "disabled"):
@@ -76,6 +80,11 @@ def daemon(settings):
             except Exception:
                 # Keep guarding the last known targets, never reuse an allowed verdict.
                 errors = []
+                if last_data:
+                    try:
+                        network.publish(settings, last_data, {'state': 'blocked'})
+                    except Exception:
+                        pass
                 if last_data and last_data["protection_enabled"]:
                     errors = enforce([last_data["cli_path"], last_data["desktop_path"]])
                 atomic_json(state_path, {"state": "error", "checked_at": time.time(),
@@ -114,8 +123,14 @@ def launch(settings, target, args):
     verdict = check(data, settings.path.parent)  # Never trust a cached verdict at launch.
     if verdict["state"] not in ("allowed", "disabled"):
         raise ValueError(f"已阻止启动：{verdict['ip'] or verdict['error'] or '出口未通过检查'}")
-    if target == "cli":
-        process = spawn(data[target + "_path"], args, env=cli_environment(data, os.environ))
+    env = cli_environment(data, os.environ) if target == "cli" else os.environ.copy()
+    if data.get('network_guard_enabled'):
+        if not network.paths(data) or not data.get(target + '_path'):
+            raise ValueError('请先设置要保护的程序路径，并安装网络助手')
+        start_daemon(settings)
+        process = network.guarded_spawn(settings, data, data[target + '_path'], args, env)
+    elif target == "cli":
+        process = spawn(data[target + "_path"], args, env=env)
     else:
         process = spawn(data[target + "_path"], args)
     tracked = psutil.Process(process.pid)

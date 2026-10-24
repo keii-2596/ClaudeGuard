@@ -32,7 +32,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          foreach ($file in @('scripts/install-windows.ps1', 'scripts/uninstall-windows.ps1')) {
+          foreach ($file in @('scripts/install-windows.ps1', 'scripts/uninstall-windows.ps1', 'scripts/setup-network-windows.ps1', 'native/windows_network_helper.ps1', 'tests/integration/windows_network.ps1')) {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$errors) | Out-Null
@@ -56,3 +56,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Installed CLI failed' }
           & $Python $Entry --config $Config add-ip 203.0.113.10
           if ($LASTEXITCODE -ne 0) { throw 'Installed configuration failed' }
+
+      - name: Linux kernel network enforcement integration
+        if: runner.os == 'Linux' && matrix.python == '3.12'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y nftables
+          sudo /usr/bin/python3 tests/integration/linux_network.py
+      - name: Windows WFP enforcement integration
+        if: runner.os == 'Windows' && matrix.python == '3.12'
+        shell: powershell
+        run: ./tests/integration/windows_network.ps1

@@ -12,7 +12,7 @@ ClaudeGuard 是一个运行在 macOS 菜单栏的 Claude 防护工具。它检�
 
 ## Windows 与 Linux
 
-新增 Windows/Linux 版本，提供中文设置窗口、命令行启动检查、进程监控和登录自启动。与下文 macOS 版相比，暂不包含系统级网络拦截。安装与配置见 [Windows 与 Linux 版本](docs/windows-linux.md)。
+新增 Windows/Linux 版本，提供中文设置窗口、命令行启动检查、进程监控和登录自启动。系统网络拦截可额外安装：Windows 使用 WFP，Linux 使用 cgroup v2 和 nftables，需要管理员权限。安装与配置见 [Windows 与 Linux 版本](docs/windows-linux.md)。
 
 ## macOS 安装与启动
 

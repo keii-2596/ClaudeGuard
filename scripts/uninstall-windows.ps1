@@ -7,6 +7,8 @@ if ((Test-Path $Python) -and (Test-Path $Entry)) {
     if ($LASTEXITCODE -ne 0) { throw '关闭自启动失败，已停止卸载。' }
     & $Python $Entry stop
     if ($LASTEXITCODE -ne 0) { throw '停止守护失败，已停止卸载。' }
+    & $Python $Entry network remove
+    if ($LASTEXITCODE -ne 0) { throw '系统网络助手卸载失败，已停止卸载。' }
 }
 Remove-Item (Join-Path ([Environment]::GetFolderPath('Desktop')) 'ClaudeGuard.lnk') -ErrorAction SilentlyContinue
 Remove-Item $InstallRoot -Recurse -Force

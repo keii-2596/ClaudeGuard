@@ -46,7 +46,7 @@ Choose an IP allowlist or a cached proxycheck.io risk-score threshold. Optional 
 
 ## Windows and Linux
 
-A Python port provides a Chinese settings window, guarded launches, process monitoring, and per-user login startup. It does not yet include system-wide firewall enforcement. See [Windows/Linux installation and scope](docs/windows-linux.md).
+A Python port provides a Chinese settings window, guarded launches, process monitoring, and per-user login startup. Optional privileged helpers enforce outbound blocks using Windows WFP or Linux cgroup v2 with nftables. See [Windows/Linux installation and scope](docs/windows-linux.md).
 
 ## Install (macOS)
 

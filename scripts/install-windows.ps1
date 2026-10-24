@@ -9,7 +9,7 @@ if ($LASTEXITCODE -ne 0) { throw '创建虚拟环境失败，请先安装 Python
 $Python = Join-Path $InstallRoot 'venv\Scripts\python.exe'
 & $Python -m pip install -r (Join-Path $SourceRoot 'portable\requirements.txt')
 if ($LASTEXITCODE -ne 0) { throw '依赖安装失败。' }
-foreach ($Name in @('portable', 'src')) {
+foreach ($Name in @('portable', 'src', 'native', 'scripts')) {
     $Destination = Join-Path $InstallRoot $Name
     New-Item -ItemType Directory -Force $Destination | Out-Null
     Copy-Item (Join-Path $SourceRoot "$Name\*") $Destination -Recurse -Force
