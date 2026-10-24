@@ -23,7 +23,7 @@ Usage:
 
 Commands:
   status               Display current status, active IP, and whitelist
-  set-ip-check-mode <auto|http|stun>  Select public-IP detection transport
+  set-ip-check-mode <both|http|stun>  Select public-IP detection transport
   check                Run instant pre-flight IP check (Exit code 0=Allowed, 1=Blocked)
   add-ip <ip>          Add an IP or CIDR range to whitelist
   remove-ip <ip>       Remove an IP from whitelist
@@ -85,8 +85,8 @@ def main():
             print(f"Error Details      : {err}")
 
     elif cmd == "set-ip-check-mode":
-        if len(sys.argv) != 3 or sys.argv[2] not in ("auto", "http", "stun"):
-            print("Usage: claudeguard set-ip-check-mode <auto|http|stun>")
+        if len(sys.argv) != 3 or sys.argv[2] not in ("both", "http", "stun"):
+            print("Usage: claudeguard set-ip-check-mode <both|http|stun>")
             sys.exit(1)
         config.ip_check_mode = sys.argv[2]
         print(f"IP check mode: {config.ip_check_mode}. Daemon applies it on the next check.")

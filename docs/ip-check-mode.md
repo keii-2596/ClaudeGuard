@@ -1,16 +1,20 @@
 # 出口检测配置
 
-使用 HTTP 代理时，HTTP 请求可能经过代理，UDP STUN 则可能直连。两者返回不同公网 IP 时，原版菜单栏守护会采用最先返回的结果，导致同一网络有时放行、有时拦截。本 fork 允许用户选择用于白名单判断的检测方式。
+使用 HTTP 代理时，HTTP 请求可能经过代理，UDP STUN 则可能直连。两者返回不同公网 IP 时，原版菜单栏守护会采用最先返回的结果，导致同一网络有时放行、有时拦截。本 fork 用 `both` 替代竞速逻辑，也允许只检查一种协议。
 
 ## 模式选择
 
 | `ip_check_mode` | 菜单栏守护 | CLI 和桌面启动器的备用检测 |
 |---|---|---|
-| `auto` | STUN 与 HTTP 并行，采用最先返回的 IP | 先查询 STUN，失败后查询 HTTP |
+| `both` | 分别查询 HTTP 和 STUN，两个出口均在白名单才放行 | 同样分别查询并要求两边通过 |
 | `http` | 仅查询 HTTP 服务 | 仅查询 HTTP 服务 |
 | `stun` | 仅查询 UDP STUN | 仅查询 UDP STUN |
 
-未配置时默认为 `auto`，保留原版行为。显式选择 `http` 或 `stun` 后，检测失败不会改用另一种协议。无法确认 IP 时判为 `offline`，拒绝新启动并阻断相关域名，沿用原版对已经运行的客户端的离线处理方式。无效模式也不会发起探测或放行。
+未配置时默认为 `both`。旧配置中的 `auto` 也按 `both` 解释，旧版竞速判定缓存不会被复用。显式选择 `http` 或 `stun` 后，检测失败不会改用另一种协议。无法确认 IP 时判为 `offline`，拒绝新启动并阻断相关域名，沿用原版对已经运行的客户端的离线处理方式。无效模式也不会发起探测或放行。
+
+`both` 模式下，任一已确认出口不在白名单就判为 `blocked`，即使另一边超时也会拦截。如果已取得的出口都在白名单，但缺少另一边的结果，则判为 `offline`。两边都有结果且均在白名单才判为 `allowed`，两个 IP 可以不同。HTTP 和 STUN 的返回顺序不参与这次判断。
+
+例如 HTTP 出口在白名单、STUN 直连出口不在白名单时，`both` 会拦截。只希望检查代理出口时，应选择 `http`。
 
 `http` 决定的是用于判断白名单的出口检测方式，拦截范围仍包括客户端和相关网络连接。它不会把防火墙改为只拦 HTTP 流量。
 
@@ -19,7 +23,7 @@
 安装此 fork 后，在菜单栏 **IP Detection** 中选择模式，或运行：
 
 ```bash
-claudeguard set-ip-check-mode http
+claudeguard set-ip-check-mode both
 claudeguard status
 ```
 
@@ -27,7 +31,7 @@ claudeguard status
 
 ```json
 {
-  "ip_check_mode": "http"
+  "ip_check_mode": "both"
 }
 ```
 
@@ -42,4 +46,4 @@ python3 -m unittest discover -s tests -v
 swiftc -O src/main.swift -o /tmp/ClaudeGuardMenuBar-check
 ```
 
-回归测试覆盖两种显式模式的协议隔离、查询失败时不跨协议回退、白名单判断、配置持久化，以及切换模式或白名单后拒绝复用旧缓存。Swift 编译用于检查菜单栏程序的构建兼容性。
+回归测试覆盖单协议模式隔离、查询失败时不跨协议回退、`both` 的全部判定分支、不同返回顺序、旧配置迁移和旧缓存拒绝复用。macOS 上还会编译并执行 Swift 判定函数的测试，不启动守护、不修改系统网络。单独的 Swift 构建用于检查完整程序的编译兼容性。

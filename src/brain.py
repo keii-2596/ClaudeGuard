@@ -44,7 +44,7 @@ def get_verdict(config, timeout=2.0, allow_fallback=True):
     Returns (verdict, ip, err), verdict ∈ "allowed"/"blocked"/"offline".
 
     Order: protection off → allowed; the daemon's verdict (instant); else, when
-    allow_fallback, our own STUN-first check. allow_fallback=False returns
+    allow_fallback, our own configured check. allow_fallback=False returns
     "offline" while the daemon is down — for tight loops that would rather skip a
     tick than block on the network.
     """
@@ -72,15 +72,14 @@ def get_verdict(config, timeout=2.0, allow_fallback=True):
 
 def resolve_display_ip(config, timeout=2.0):
     """The current public IP for display only, never for a decision. Prefers the
-    daemon's last known IP, else a live STUN-first lookup. IP string or None."""
+    daemon's last known IP, else a live configured lookup. IP string or None."""
     st = read_daemon_state()
     if st is not None:
         ip = st.get("ip")
         if ip and ip not in ("No Internet", "…"):
             return ip
     try:
-        from src.ip_checker import fetch_public_ip
-        ip, _ = fetch_public_ip(timeout=timeout, mode=config.ip_check_mode)
+        ip, _, _ = perform_ip_check(config.allowed_ips, timeout=timeout, mode=config.ip_check_mode)
         return ip
     except Exception:
         return None

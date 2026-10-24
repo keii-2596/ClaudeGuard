@@ -37,10 +37,57 @@ class IPModeTests(unittest.TestCase):
             self.assertIsNone(ip_checker.fetch_public_ip(mode='stun')[0])
             http.assert_not_called()
 
-    def test_auto_retains_stun_then_http_fallback(self):
-        with patch.object(ip_checker, 'stun_public_ip', return_value=None), patch.object(
-                ip_checker.urllib.request, 'urlopen', return_value=self.response()):
-            self.assertEqual(ip_checker.fetch_public_ip()[0], '203.0.113.10')
+    def test_both_requires_each_exit_to_be_whitelisted(self):
+        for http, stun, expected in [
+            ('203.0.113.10', '203.0.113.10', True),
+            ('203.0.113.10', '203.0.113.20', False),
+            ('203.0.113.20', '203.0.113.10', False),
+            ('203.0.113.20', '203.0.113.20', False),
+            ('203.0.113.10', None, False),
+            (None, '203.0.113.10', False),
+            (None, None, False),
+        ]:
+            with self.subTest(http=http, stun=stun), patch.object(
+                    ip_checker, 'fetch_public_ip', side_effect=lambda timeout, mode: (
+                        {'http': http, 'stun': stun}[mode], None)):
+                result = ip_checker.perform_ip_check(['203.0.113.10'], mode='both')
+                self.assertEqual(result[1], expected)
+                if http is None or stun is None:
+                    self.assertIsNone(result[0])
+
+    def test_confirmed_unlisted_exit_blocks_despite_other_timeout(self):
+        with patch.object(ip_checker, 'fetch_public_ip', side_effect=lambda timeout, mode: (
+                '203.0.113.20' if mode == 'stun' else None, None)):
+            ip, allowed, _ = ip_checker.perform_ip_check(['203.0.113.10'])
+            self.assertIsNotNone(ip)
+            self.assertFalse(allowed)
+
+    def test_distinct_whitelisted_exits_pass(self):
+        with patch.object(ip_checker, 'fetch_public_ip', side_effect=lambda timeout, mode: (
+                '203.0.113.10' if mode == 'http' else '203.0.113.20', None)):
+            self.assertTrue(ip_checker.perform_ip_check(['203.0.113.0/24'])[1])
+
+    def test_completion_order_does_not_change_result(self):
+        import time
+        for slow in ('http', 'stun'):
+            def lookup(timeout, mode):
+                if mode == slow:
+                    time.sleep(0.02)
+                return ('203.0.113.10' if mode == 'http' else '203.0.113.20'), None
+            with patch.object(ip_checker, 'fetch_public_ip', side_effect=lookup):
+                result = ip_checker.perform_ip_check(['203.0.113.10'])
+                self.assertFalse(result[1])
+                self.assertIn('HTTP: 203.0.113.10', result[0])
+                self.assertIn('STUN: 203.0.113.20', result[0])
+
+    def test_legacy_auto_migrates_to_both(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / 'config.json'
+            path.write_text('{"allowed_ips": [], "ip_check_mode": "auto"}')
+            self.assertEqual(ConfigManager(str(path)).ip_check_mode, 'both')
+        with patch.object(ip_checker, 'fetch_public_ip', side_effect=lambda timeout, mode: (
+                '203.0.113.10' if mode == 'http' else '203.0.113.20', None)):
+            self.assertFalse(ip_checker.perform_ip_check(['203.0.113.10'], mode='auto')[1])
 
     def test_invalid_mode_queries_nothing(self):
         with patch.object(ip_checker, 'stun_public_ip') as stun, patch.object(
@@ -59,7 +106,7 @@ class IPModeTests(unittest.TestCase):
             path = Path(d) / 'config.json'
             path.write_text('{"allowed_ips": []}')
             config = ConfigManager(str(path))
-            self.assertEqual(config.ip_check_mode, 'auto')
+            self.assertEqual(config.ip_check_mode, 'both')
             config.ip_check_mode = 'http'
             self.assertEqual(ConfigManager(str(path)).ip_check_mode, 'http')
             with self.assertRaises(ValueError):

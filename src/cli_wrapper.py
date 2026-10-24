@@ -53,7 +53,10 @@ def print_block_banner(ip, err, verb):
         print(f" Error Details     : {err}", file=sys.stderr)
     print(f"--------------------------------------------------", file=sys.stderr)
     print(f" Execution aborted to prevent Anthropic region flag.", file=sys.stderr)
-    print(f" Add IP to whitelist: claudeguard add-ip {current_ip_str}", file=sys.stderr)
+    if ip and not ip.startswith("HTTP:"):
+        print(f" Add IP to whitelist: claudeguard add-ip {current_ip_str}", file=sys.stderr)
+    else:
+        print(" Review HTTP and STUN exits with 'claudeguard status'.", file=sys.stderr)
     print(f"\033[0m", file=sys.stderr)
 
 def main():

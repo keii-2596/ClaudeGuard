@@ -37,8 +37,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var modelOverrideEnabled: Bool = false
     var defaultModel: String = "claude-opus-4-8"
     var allowedIPs: [String] = []
-    var ipCheckMode: String = "auto"
-    var verdictIPCheckMode: String = "auto"
+    var ipCheckMode: String = "both"
+    var verdictIPCheckMode: String = "both"
+    var detectedIPs: [String: String] = [:]
     var verdictAllowedIPs: [String] = []
 
     var dynamicStore: SCDynamicStore?
@@ -273,26 +274,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let checkedMode = ipCheckMode
         let checkedIPs = allowedIPs
 
+        detectedIPs = [:]
         let newState: GuardState
         if !protectionEnabled {
             newState = .disabled
         } else {
-            // `hasNetworkPath` is only a *hint* for snappy offline detection —
-            // never a latch. Even when it says "no route" we still attempt a
-            // short resolve, because that flag can go stale across a Wi-Fi/VPN
-            // handoff and would otherwise pin us to offline until a reboot. A
-            // resolved IP always overrides the hint (and repairs it).
-            let ip = hasNetworkPath ? resolvePublicIPWithRetry(mode: checkedMode)
-                                    : resolvePublicIP(deadline: 1.5, mode: checkedMode)
-            if let ip = ip {
+            let modes = checkedMode == "both" ? ["http", "stun"] : [checkedMode]
+            let group = DispatchGroup()
+            let resultsLock = NSLock()
+            var results: [String: String] = [:]
+            for mode in modes {
+                group.enter()
+                DispatchQueue.global(qos: .utility).async {
+                    let ip = self.resolvePublicIP(deadline: 2.0, mode: mode)
+                    resultsLock.lock()
+                    if let ip = ip { results[mode] = ip }
+                    resultsLock.unlock()
+                    group.leave()
+                }
+            }
+            group.wait()
+            detectedIPs = results
+            if checkedMode == "both" {
+                currentIP = Self.describeBoth(results)
+                newState = Self.bothState(results, allowedList: checkedIPs)
+            } else if let ip = results[checkedMode] {
                 currentIP = ip
-                if !hasNetworkPath { hasNetworkPath = true }   // hint was stale
-                let ok = Self.isIPAllowed(ip, allowedList: checkedIPs)
-                newState = ok ? .allowed(ip: ip) : .blocked(ip: ip)
+                newState = Self.isIPAllowed(ip, allowedList: checkedIPs) ? .allowed(ip: ip) : .blocked(ip: ip)
             } else {
                 currentIP = "No Internet"
                 newState = .offline
             }
+            if !results.isEmpty { hasNetworkPath = true }
+
         }
 
         let previous = state
@@ -319,6 +333,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let dict: [String: Any] = [
             "state": stateStr,
             "ip": currentIP,
+            "detected_ips": detectedIPs,
             "ip_check_mode": verdictIPCheckMode,
             "allowed_ips": verdictAllowedIPs,
             "protection_enabled": stateStr != "disabled",
@@ -387,22 +402,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         "https://api.myip.com"
     ]
 
-    /// Resolves the public IP with a brief retry — right after a VPN/Wi-Fi
-    /// handshake the route is momentarily unstable, and a single failed lookup
-    /// used to falsely flash "offline".
-    func resolvePublicIPWithRetry(attempts: Int = 2, deadline: TimeInterval = 2.0, mode: String? = nil) -> String? {
-        for attempt in 0..<attempts {
-            if let ip = resolvePublicIP(deadline: deadline, mode: mode) { return ip }
-            if attempt < attempts - 1 { Thread.sleep(forTimeInterval: 0.5) }
-        }
-        return nil
+    static func describeBoth(_ ips: [String: String]) -> String {
+        return "HTTP: \(ips["http"] ?? "UNKNOWN"); STUN: \(ips["stun"] ?? "UNKNOWN")"
     }
 
-    /// Auto races STUN against HTTP; explicit modes query only their transport.
-    /// The first valid answer wins within a single shared deadline.
+    static func bothState(_ ips: [String: String], allowedList: [String]) -> GuardState {
+        let display = describeBoth(ips)
+        // A known unlisted exit blocks even if the other transport timed out.
+        if ["http", "stun"].contains(where: { mode in
+            guard let ip = ips[mode] else { return false }
+            return !isIPAllowed(ip, allowedList: allowedList)
+        }) { return .blocked(ip: display) }
+        guard ips["http"] != nil, ips["stun"] != nil else { return .offline }
+        return .allowed(ip: display)
+    }
+
+    /// Resolve one transport. Both-mode callers wait for two independent results.
     func resolvePublicIP(deadline: TimeInterval = 2.0, mode selectedMode: String? = nil) -> String? {
         let mode = selectedMode ?? ipCheckMode
-        guard ["auto", "http", "stun"].contains(mode) else { return nil }
+        guard ["http", "stun"].contains(mode) else { return nil }
         let sem = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var result: String? = nil
@@ -606,7 +624,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: configPath)),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         if let ips = json["allowed_ips"] as? [String] { allowedIPs = ips }
-        ipCheckMode = json["ip_check_mode"] == nil ? "auto" : ((json["ip_check_mode"] as? String) ?? "invalid")
+        let storedMode = json["ip_check_mode"] == nil ? "both" : ((json["ip_check_mode"] as? String) ?? "invalid")
+        ipCheckMode = storedMode == "auto" ? "both" : storedMode
         if let p = json["protection_enabled"] as? Bool { protectionEnabled = p }
         if let u = json["block_auto_updates"] as? Bool { blockAutoUpdates = u }
         if let m = json["model_override_enabled"] as? Bool { modelOverrideEnabled = m }
@@ -720,7 +739,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let modeItem = NSMenuItem(title: "IP Detection: \(ipCheckMode)", action: nil, keyEquivalent: "")
         let modeMenu = NSMenu()
-        for (value, title) in [("auto", "Auto (STUN + HTTP)"), ("http", "HTTP Only"), ("stun", "STUN Only")] {
+        for (value, title) in [("both", "Both (HTTP and STUN must pass)"), ("http", "HTTP Only"), ("stun", "STUN Only")] {
             let item = NSMenuItem(title: title, action: #selector(onSelectIPCheckMode(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = value
@@ -748,9 +767,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
-        if !currentIP.isEmpty, currentIP != "No Internet", currentIP != "…", !allowedIPs.contains(currentIP) {
-            let add = NSMenuItem(title: "➕ Whitelist Current IP (\(currentIP))", action: #selector(onAddCurrentIP), keyEquivalent: "")
+        for ip in Set(detectedIPs.values).sorted() where !allowedIPs.contains(ip) {
+            let add = NSMenuItem(title: "➕ Whitelist IP (\(ip))", action: #selector(onAddCurrentIP(_:)), keyEquivalent: "")
             add.target = self
+            add.representedObject = ip
             menu.addItem(add)
         }
 
@@ -774,7 +794,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func onSelectIPCheckMode(_ sender: NSMenuItem) {
         guard let mode = sender.representedObject as? String,
-              ["auto", "http", "stun"].contains(mode) else { return }
+              ["both", "http", "stun"].contains(mode) else { return }
         ipCheckMode = mode
         saveConfig()
         rebuildMenu()
@@ -824,12 +844,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc func onAddCurrentIP() {
-        if !currentIP.isEmpty, !allowedIPs.contains(currentIP), currentIP != "No Internet", currentIP != "…" {
-            allowedIPs.append(currentIP)
-            saveConfig()
-            recheckAsync()
-        }
+    @objc func onAddCurrentIP(_ sender: NSMenuItem) {
+        guard let ip = sender.representedObject as? String, !allowedIPs.contains(ip) else { return }
+        allowedIPs.append(ip)
+        saveConfig()
+        recheckAsync()
     }
 
     @objc func onManageIPs() {

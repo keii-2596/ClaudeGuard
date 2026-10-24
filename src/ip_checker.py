@@ -4,6 +4,7 @@ import socket
 import struct
 import os
 import ipaddress
+from concurrent.futures import ThreadPoolExecutor
 
 IP_CHECK_SERVICES = [
     "https://api.ipify.org?format=json",
@@ -68,16 +69,13 @@ def stun_public_ip(timeout=1.0):
             continue
     return None
 
-def fetch_public_ip(timeout=2.0, mode="auto"):
-    """Resolve using the selected transport. Explicit modes never cross-fallback."""
-    if mode not in ("auto", "http", "stun"):
-        return None, "Invalid ip_check_mode (expected auto, http, or stun)"
-    if mode != "http":
+def fetch_public_ip(timeout=2.0, mode="http"):
+    """Resolve one transport only; no fallback to the other transport."""
+    if mode not in ("http", "stun"):
+        return None, "Single-IP lookup requires http or stun mode"
+    if mode == "stun":
         ip = stun_public_ip(timeout=min(timeout, 1.0))
-        if ip:
-            return ip, None
-        if mode == "stun":
-            return None, "Unable to detect public IP via STUN"
+        return (ip, None) if ip else (None, "Unable to detect public IP via STUN")
 
     for service in IP_CHECK_SERVICES:
         try:
@@ -139,13 +137,27 @@ def is_ip_allowed(current_ip, allowed_list):
 
     return False
 
-def perform_ip_check(allowed_ips, timeout=2.0, mode="auto"):
+def perform_ip_check(allowed_ips, timeout=2.0, mode="both"):
+    """Return (display_ip, allowed, error). Both transports must be verified.
+
+    A confirmed unlisted IP takes precedence over a missing result. Missing
+    results otherwise return ip=None so callers classify the verdict as offline.
     """
-    Full helper function that returns (ip, is_allowed, error_msg).
-    """
-    ip, err = fetch_public_ip(timeout=timeout, mode=mode)
-    if err or not ip:
-        return None, False, err or "No IP detected"
-    
-    allowed = is_ip_allowed(ip, allowed_ips)
-    return ip, allowed, None
+    if mode == "auto":  # migrate legacy configurations without a racing policy
+        mode = "both"
+    if mode not in ("both", "http", "stun"):
+        return None, False, "Invalid ip_check_mode (expected both, http, or stun)"
+    modes = ("http", "stun") if mode == "both" else (mode,)
+    with ThreadPoolExecutor(max_workers=len(modes)) as pool:
+        futures = {m: pool.submit(fetch_public_ip, timeout=timeout, mode=m) for m in modes}
+        results = {m: f.result() for m, f in futures.items()}
+    ips = {m: ip for m, (ip, _) in results.items() if ip}
+    display = "; ".join(f"{m.upper()}: {ips.get(m) or 'UNKNOWN'}" for m in modes)
+    if mode != "both" and ips:
+        display = next(iter(ips.values()))
+    if any(not is_ip_allowed(ip, allowed_ips) for ip in ips.values()):
+        return display, False, None
+    if len(ips) != len(modes):
+        errors = "; ".join(f"{m.upper()}: {err or 'No IP detected'}" for m, (ip, err) in results.items() if not ip)
+        return None, False, errors
+    return display, True, None

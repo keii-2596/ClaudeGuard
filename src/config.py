@@ -7,7 +7,7 @@ CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 
 DEFAULT_CONFIG = {
     "allowed_ips": [],
-    "ip_check_mode": "auto",
+    "ip_check_mode": "both",
     "protection_enabled": True,
     "block_auto_updates": True,
     "model_override_enabled": False,
@@ -142,11 +142,12 @@ class ConfigManager:
 
     @property
     def ip_check_mode(self):
-        return self.config.get("ip_check_mode", "auto")
+        mode = self.config.get("ip_check_mode", "both")
+        return "both" if mode == "auto" else mode
 
     @ip_check_mode.setter
     def ip_check_mode(self, value):
-        if value not in ("auto", "http", "stun"):
-            raise ValueError("ip_check_mode must be auto, http, or stun")
+        if value not in ("both", "http", "stun"):
+            raise ValueError("ip_check_mode must be both, http, or stun")
         self.config["ip_check_mode"] = value
         self.save_config()

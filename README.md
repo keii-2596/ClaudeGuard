@@ -38,7 +38,7 @@ ClaudeGuard solves that: every launch and every running session is checked again
 
 ## 出口检测模式
 
-基于 [ivblz/ClaudeGuard](https://github.com/ivblz/ClaudeGuard) 的本 fork 增加 `ip_check_mode` 配置，可选择 `auto`、`http` 或 `stun`。使用 HTTP 代理且 UDP 走直连时，选择 `http`，避免 STUN 与 HTTP 返回不同出口造成误拦截。菜单栏的 **IP Detection** 子菜单和 `claudeguard set-ip-check-mode http` 均可切换。完整行为与验证方式见 [出口检测配置](docs/ip-check-mode.md)。
+基于 [ivblz/ClaudeGuard](https://github.com/ivblz/ClaudeGuard) 的本 fork 增加 `ip_check_mode` 配置，可选择 `both`、`http` 或 `stun`。`both` 要求 HTTP 和 STUN 两个出口均在白名单，判定不再取决于返回先后，旧配置 `auto` 自动迁移为 `both`。使用 HTTP 代理且 UDP 走直连时，选择 `http`，避免 STUN 与 HTTP 返回不同出口造成误拦截。菜单栏的 **IP Detection** 子菜单和 `claudeguard set-ip-check-mode http` 均可切换。完整行为与验证方式见 [出口检测配置](docs/ip-check-mode.md)。
 
 ## Install
 
@@ -78,7 +78,7 @@ After install the `claudeguard` command is available:
 | Command | What it does |
 |---|---|
 | `claudeguard status` | Current status, IP, detection mode and whitelist |
-| `claudeguard set-ip-check-mode <auto\|http\|stun>` | Select the public-IP detection transport |
+| `claudeguard set-ip-check-mode <both\|http\|stun>` | Select the public-IP detection transport |
 | `claudeguard add-ip <ip>` | Add an IP or CIDR to the whitelist |
 | `claudeguard remove-ip <ip>` | Remove an IP from the whitelist |
 | `claudeguard list-ips` | List whitelisted IPs |
@@ -106,7 +106,7 @@ it immediately) at any time.
 
 ## How it works
 
-1. **Selectable IP detection** - `http` queries only HTTP services, `stun` queries only UDP STUN. The default `auto` preserves upstream behavior: the daemon races both transports, while the Python fallback tries STUN before HTTP.
+1. **Selectable IP detection** - `http` queries only HTTP services, `stun` queries only UDP STUN. The default `both` checks HTTP and STUN independently and allows access only when both exits are whitelisted, regardless of response order. Legacy `auto` configurations are treated as `both`.
 2. **The brain** (`src/brain.py`) turns that IP into one verdict - `allowed` / `blocked` / `offline` - and it **fails closed**: only a confirmed `allowed` lets Claude run.
 3. **Single source of truth** - the menu bar daemon writes its verdict to `~/.config/claudeguard/state.json` on every check. The CLI wrapper and app launcher read it (instant), and fall back to their own check if the daemon is down, its state is stale, or its detection mode / whitelist differs from the current configuration.
 4. **Enforcement** - the whole Claude/Anthropic domain family (~175 hosts across 5 apex domains) is blocked via `/etc/hosts` + a pf firewall rule (TCP + UDP/QUIC); the desktop app is force-quit with an alert; a running `claude` session is killed the moment the IP leaves the whitelist.
