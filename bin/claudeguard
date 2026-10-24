@@ -34,6 +34,7 @@ ClaudeGuard：按出口 IP 白名单保护 Claude
 出口与白名单：
   set-access-mode <whitelist|risk>   选择白名单或风险评分规则
   set-risk-threshold <0-100>         超过此风险分时拦截
+  set-check-interval <1-60秒>        设置出口轮询间隔，建议 3 秒
   set-risk-cache-ttl <秒>            风险评分缓存有效期
   detect-ip-change <on|off>          开关 IP 跳变检测
   ack-ip-change                     确认当前出口并解除跳变拦截
@@ -74,6 +75,7 @@ def main():
         print(f"防护状态：{'已开启' if config.protection_enabled else '已关闭'}")
         print(f"自动更新：{'已禁止' if config.block_auto_updates else '允许'}")
         print(f"检测方式：{mode_label(config.ip_check_mode)}")
+        print(f"出口轮询间隔：{config.check_interval:g} 秒")
         if config.model_override_enabled:
             print(f"固定模型：{config.default_model}")
         else:
@@ -110,15 +112,15 @@ def main():
         if err:
             print(f"原因： {err}")
 
-    elif cmd in ("set-access-mode", "set-risk-threshold", "set-risk-cache-ttl", "detect-ip-change"):
+    elif cmd in ("set-access-mode", "set-risk-threshold", "set-risk-cache-ttl", "detect-ip-change", "set-check-interval"):
         if len(sys.argv) != 3:
             print("请提供设置值，运行 claudeguard 查看用法。")
             sys.exit(1)
         key = {"set-access-mode": "access_mode", "set-risk-threshold": "risk_threshold",
-               "set-risk-cache-ttl": "risk_cache_ttl", "detect-ip-change": "detect_ip_change"}[cmd]
+               "set-check-interval": "check_interval", "set-risk-cache-ttl": "risk_cache_ttl", "detect-ip-change": "detect_ip_change"}[cmd]
         try:
             value = sys.argv[2]
-            if key in ("risk_threshold", "risk_cache_ttl"):
+            if key in ("risk_threshold", "risk_cache_ttl", "check_interval"):
                 value = float(value)
             if key == "detect_ip_change":
                 if value not in ("on", "off"):

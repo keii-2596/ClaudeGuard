@@ -19,14 +19,14 @@ from concurrent.futures import ThreadPoolExecutor
 from src.ip_checker import fetch_public_ip, is_ip_allowed
 
 DEFAULTS = {"access_mode": "whitelist", "risk_threshold": 50,
-            "risk_cache_ttl": 21600, "detect_ip_change": False}
+            "risk_cache_ttl": 21600, "detect_ip_change": False, "check_interval": 3}
 
 
 def settings(data):
     result = {**DEFAULTS, **data}
     if result['access_mode'] not in ('whitelist', 'risk'):
         raise ValueError('访问规则只能为 whitelist 或 risk')
-    for field, low, high in [('risk_threshold', 0, 100), ('risk_cache_ttl', 1, 604800)]:
+    for field, low, high in [('risk_threshold', 0, 100), ('risk_cache_ttl', 1, 604800), ('check_interval', 1, 60)]:
         value = result[field]
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
             raise ValueError(f'{field} 须在 {low}～{high} 之间')

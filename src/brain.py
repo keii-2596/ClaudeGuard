@@ -24,11 +24,14 @@ STATE_PATH = os.path.expanduser("~/.config/claudeguard/state.json")
 STATE_MAX_AGE_SECONDS = 7.0
 
 
-def read_daemon_state(max_age=STATE_MAX_AGE_SECONDS):
+def read_daemon_state(max_age=None):
     """The daemon's state dict while it's fresh, or None if missing/stale."""
     try:
         with open(STATE_PATH) as f:
             d = json.load(f)
+        if max_age is None:
+            interval = policy.settings({"check_interval": d.get("check_interval", 3)})["check_interval"]
+            max_age = max(STATE_MAX_AGE_SECONDS, interval + 4)
         if time.time() - float(d.get("updated_at", 0)) <= max_age:
             return d
     except Exception:

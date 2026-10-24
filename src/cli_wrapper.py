@@ -17,8 +17,7 @@ from src.brain import get_verdict
 from src.integrity import discover_real_cli, is_our_wrapper, repair_cli
 from src.network_guard import sync_hosts_file
 
-# Re-check cadence while a session runs. Just a local state-file read, so cheap.
-MONITOR_INTERVAL_SECONDS = 1.5
+# Sessions use the configured cadence; advanced policies also probe the exit.
 
 def force_restore_terminal():
     """Undo Claude's TUI state. Exiting the alternate screen (\\033[?1049l) is
@@ -103,7 +102,7 @@ def monitor_and_enforce(config, proc, stop_event, block_info):
     swallow it) — we stash details in block_info and let the main thread print
     after Claude exits. On "offline" we do nothing: no point killing a session
     over a Wi-Fi blip."""
-    while not stop_event.wait(MONITOR_INTERVAL_SECONDS):
+    while not stop_event.wait(config.check_interval):
         if proc.poll() is not None:
             return  # child already exited on its own
 

@@ -24,6 +24,13 @@ class PolicyTests(unittest.TestCase):
     def evaluate(self, ips=None, **kwargs):
         return policy.evaluate(self.data, ips if ips is not None else {'http': A}, self.directory, **kwargs)
 
+    def test_poll_interval_bounds_reject_invalid_values(self):
+        for value in (0, 0.5, 61, True, '1', float('nan'), float('inf')):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                policy.settings({**self.data, 'check_interval': value})
+        for value in (1, 1.5, 3, 60):
+            self.assertEqual(policy.settings({**self.data, 'check_interval': value})['check_interval'], value)
+
     def test_whitelist_does_not_query_scores(self):
         lookup = Mock(side_effect=AssertionError('unexpected score lookup'))
         self.assertEqual(self.evaluate(score_lookup=lookup)['state'], 'allowed')

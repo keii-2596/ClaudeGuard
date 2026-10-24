@@ -46,6 +46,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var policyScriptPath = NSString(string: "~/.local/share/ClaudeGuard/src/policy_cli.py").expandingTildeInPath
     var riskScores: [String: Any] = [:]
     var jumpBlocked = false
+    var pollTimer: Timer?
+    var scheduledPollInterval: Double = 0
+
+    var checkInterval: Double {
+        guard let raw = policyConfig["check_interval"] as? NSNumber,
+              CFGetTypeID(raw) != CFBooleanGetTypeID(), raw.doubleValue.isFinite,
+              (1...60).contains(raw.doubleValue) else { return 3 }
+        return raw.doubleValue
+    }
 
     var usesAdvancedPolicy: Bool {
         let access = policyConfig["access_mode"] == nil ? "whitelist" : (policyConfig["access_mode"] as? String ?? "invalid")
@@ -120,9 +129,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // and (paired with the coalescing recheck) guarantees the daemon
         // self-heals from a bad boot within one interval instead of needing a
         // reboot. .utility so the OS won't suspend it the way it can .background.
-        Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
-            DispatchQueue.global(qos: .utility).async { self.recheck() }
-        }
+        configurePolling()
 
         // Hook self-heal. Separate from recheck() because it guards a different
         // failure: not a network change, but Claude being reinstalled underneath
@@ -130,6 +137,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2.0) { self.runIntegrityRepair() }
         Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { _ in
             DispatchQueue.global(qos: .utility).async { self.runIntegrityRepair() }
+        }
+    }
+
+    func configurePolling() {
+        let interval = checkInterval
+        guard pollTimer == nil || scheduledPollInterval != interval else { return }
+        pollTimer?.invalidate()
+        scheduledPollInterval = interval
+        pollTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            DispatchQueue.global(qos: .utility).async {
+                guard let self = self else { return }
+                self.checkLock.lock()
+                let busy = self.checkRunning
+                self.checkLock.unlock()
+                // Slow checks skip timer ticks rather than build a backlog.
+                if !busy { self.recheck() }
+            }
         }
     }
 
@@ -332,7 +356,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         apply(from: previous, to: newState)
         writeStateFile()  // publish verdict for the CLI wrapper
 
-        DispatchQueue.main.async { self.updateStatusDisplay(); self.rebuildMenu() }
+        DispatchQueue.main.async { self.configurePolling(); self.updateStatusDisplay(); self.rebuildMenu() }
     }
 
     /// Publishes the verdict to state.json (single source of truth for the CLI
@@ -356,6 +380,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             "scores": riskScores,
             "jump_latched": jumpBlocked,
             "ip_check_mode": verdictIPCheckMode,
+            "check_interval": checkInterval,
             "allowed_ips": verdictAllowedIPs,
             "protection_enabled": stateStr != "disabled",
             "updated_at": Date().timeIntervalSince1970
@@ -681,7 +706,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         var json: [String: Any] = [:]
         if let data = try? Data(contentsOf: URL(fileURLWithPath: configPath)),
            let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { json = existing }
-        for key in ["access_mode", "risk_threshold", "risk_cache_ttl", "detect_ip_change"] {
+        for key in ["access_mode", "risk_threshold", "risk_cache_ttl", "detect_ip_change", "check_interval"] {
             if let value = policyConfig[key] { json[key] = value }
         }
         json["allowed_ips"] = allowedIPs
@@ -832,6 +857,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let settingsItem = NSMenuItem(title: "设置", action: nil, keyEquivalent: "")
         let settingsMenu = NSMenu()
+        let interval = NSMenuItem(title: "轮询间隔：\(checkInterval) 秒…", action: #selector(onCheckInterval), keyEquivalent: "")
+        interval.target = self
+        settingsMenu.addItem(interval)
+        settingsMenu.addItem(.separator())
         if access == "risk" {
             let cache = NSMenuItem(title: "评分缓存时间…", action: #selector(onRiskCacheTTL), keyEquivalent: "")
             cache.target = self
@@ -957,6 +986,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         policyConfig[key] = number
         saveConfig()
         recheckAsync()
+    }
+    @objc func onCheckInterval() {
+        setPolicyNumber(key: "check_interval", title: "出口轮询间隔（秒，建议 3 秒）", fallback: 3, min: 1, max: 60)
+        configurePolling()
     }
     @objc func onRiskThreshold() {
         setPolicyNumber(key: "risk_threshold", title: "超过多少风险分时拦截？", fallback: 50, min: 0, max: 100)

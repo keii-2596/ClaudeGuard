@@ -58,6 +58,18 @@ precondition(ack["state"] as? String == "blocked", "Acknowledgement bypassed whi
 precondition(ack["jump_acknowledged"] as? Bool == true, "Acknowledgement did not clear jump separately")
 let ruleBlocked = native.runPolicy(action: "evaluate", request: ["data": ackConfig, "ips": ["http": bad]])
 precondition(ruleBlocked["jump_latched"] as? Bool == false, "Whitelist denial incorrectly kept jump latch")
+native.policyConfig = ["check_interval": 1.5]
+native.configurePolling()
+precondition(native.pollTimer!.timeInterval == 1.5)
+let originalTimer = native.pollTimer
+native.configurePolling()
+precondition(native.pollTimer === originalTimer, "Unchanged interval should not reset the timer")
+native.policyConfig["check_interval"] = 5
+native.configurePolling()
+precondition(!originalTimer!.isValid && native.pollTimer!.timeInterval == 5)
+native.policyConfig["check_interval"] = true
+precondition(native.checkInterval == 3, "Boolean interval must not be accepted")
+native.pollTimer?.invalidate()
 print("Swift both verdict matrix passed")
 '''
         with tempfile.TemporaryDirectory() as d:

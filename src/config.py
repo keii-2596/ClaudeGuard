@@ -2,7 +2,7 @@ import json
 import os
 import sys
 import copy
-from src.policy import DEFAULTS as POLICY_DEFAULTS, atomic_json
+from src.policy import DEFAULTS as POLICY_DEFAULTS, atomic_json, settings as policy_settings
 
 CONFIG_DIR = os.path.expanduser("~/.config/claudeguard")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
@@ -15,7 +15,7 @@ DEFAULT_CONFIG = {
     "block_auto_updates": True,
     "model_override_enabled": False,
     "default_model": "claude-opus-4-8",
-    "check_interval": 10,
+    "check_interval": 3,
     "blocked_domains": [
         "claude.com",
         "www.claude.com",
@@ -114,7 +114,10 @@ class ConfigManager:
 
     @property
     def check_interval(self):
-        return self.config.get("check_interval", 10)
+        try:
+            return policy_settings(self.config)["check_interval"]
+        except ValueError:
+            return 3
 
     @property
     def model_override_enabled(self):
