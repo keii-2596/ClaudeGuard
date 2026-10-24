@@ -1,0 +1,40 @@
+name: Cross-platform checks
+on:
+  push:
+    branches: [main, feat/ip-check-mode]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ['3.10', '3.12']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -r portable/requirements.txt
+      - name: Linux tests including GUI
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python -m unittest discover -s tests -v
+      - name: Windows and macOS tests
+        if: runner.os != 'Linux'
+        run: python -m unittest discover -s tests -v
+      - name: Linux installer syntax
+        if: runner.os == 'Linux'
+        run: bash -n scripts/install-linux.sh scripts/uninstall-linux.sh
+      - name: Windows installer syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          foreach ($file in @('scripts/install-windows.ps1', 'scripts/uninstall-windows.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }

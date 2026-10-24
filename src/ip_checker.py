@@ -69,7 +69,7 @@ def stun_public_ip(timeout=1.0):
             continue
     return None
 
-def fetch_public_ip(timeout=2.0, mode="http"):
+def fetch_public_ip(timeout=2.0, mode="http", proxy=None):
     """Resolve one transport only; no fallback to the other transport."""
     if mode not in ("http", "stun"):
         return None, "单协议检测仅支持 http 或 stun 模式"
@@ -77,13 +77,18 @@ def fetch_public_ip(timeout=2.0, mode="http"):
         ip = stun_public_ip(timeout=min(timeout, 1.0))
         return (ip, None) if ip else (None, "未能获取 STUN 出口 IP")
 
+    open_url = urllib.request.urlopen
+    if proxy:
+        open_url = urllib.request.build_opener(
+            urllib.request.ProxyHandler({"http": proxy, "https": proxy})
+        ).open
     for service in IP_CHECK_SERVICES:
         try:
             req = urllib.request.Request(
                 service,
                 headers={"User-Agent": "ClaudeGuard/1.0"}
             )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with open_url(req, timeout=timeout) as resp:
                 data = resp.read().decode("utf-8").strip()
                 if not data:
                     continue
@@ -137,7 +142,7 @@ def is_ip_allowed(current_ip, allowed_list):
 
     return False
 
-def perform_ip_check(allowed_ips, timeout=2.0, mode="both"):
+def perform_ip_check(allowed_ips, timeout=2.0, mode="both", proxy=None):
     """Return (display_ip, allowed, error). Both transports must be verified.
 
     A confirmed unlisted IP takes precedence over a missing result. Missing
@@ -149,7 +154,8 @@ def perform_ip_check(allowed_ips, timeout=2.0, mode="both"):
         return None, False, "ip_check_mode 配置有误，可选值为 both、http、stun"
     modes = ("http", "stun") if mode == "both" else (mode,)
     with ThreadPoolExecutor(max_workers=len(modes)) as pool:
-        futures = {m: pool.submit(fetch_public_ip, timeout=timeout, mode=m) for m in modes}
+        kwargs = {"proxy": proxy} if proxy else {}
+        futures = {m: pool.submit(fetch_public_ip, timeout=timeout, mode=m, **kwargs) for m in modes}
         results = {m: f.result() for m, f in futures.items()}
     ips = {m: ip for m, (ip, _) in results.items() if ip}
     display = "; ".join(f"{m.upper()}: {ips.get(m) or '未获取'}" for m in modes)
