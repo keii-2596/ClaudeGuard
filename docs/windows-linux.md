@@ -183,6 +183,6 @@ python -m unittest discover -s tests -v
 
 仓库中的 Cross-platform checks 会在 Windows、Ubuntu 和 macOS 上运行 Python 3.10/3.12 测试。覆盖配置校验、协议选择、启动拦截、运行中检测失败、精确路径匹配、真实子进程终止、单实例锁、GUI 构建与自启动配置。Linux GUI 测试在 Xvfb 下运行。
 
-Windows CI 还会实际安装 WFP 过滤器，验证指定 exe 的本机 TCP 连接依次被阻断、放行和再次阻断。Linux CI 以 root 创建测试 cgroup 和 nftables 表，验证普通用户进程的本机 TCP 连接执行同样的变化，测试结束后清理规则。
+Windows CI 还会实际安装 WFP 过滤器，验证指定 exe 的本机 TCP 连接依次被阻断、放行和再次阻断。Linux CI 以 root 创建测试 cgroup 和 nftables 表，验证普通用户进程的本机 IPv4/IPv6 TCP 连接执行同样的变化，并实际安装 systemd 服务、通过受保护入口完成归组和启动，最后卸载并清理规则。两端还会验证放行凭据的产生进程退出后恢复阻断。
 
 CI 验证不等于用户机器上的完整网络验收。安装后应使用自己的代理线路核对出口，再分别验证放行与拦截。

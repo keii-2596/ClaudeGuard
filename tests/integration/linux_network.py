@@ -38,6 +38,10 @@ with tempfile.TemporaryDirectory() as temp:
     server.bind(('127.0.0.1', 0))
     server.listen(5)
     port = server.getsockname()[1]
+    server6 = socket.socket(socket.AF_INET6)
+    server6.bind(('::1', 0))
+    server6.listen(5)
+    endpoints = [('127.0.0.1', port), ('::1', server6.getsockname()[1])]
     def wait(predicate):
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
@@ -59,7 +63,7 @@ with tempfile.TemporaryDirectory() as temp:
         probe = '''import socket,sys
 for line in sys.stdin:
  try:
-  s=socket.create_connection(('127.0.0.1', int(sys.argv[1])), timeout=0.8); s.close(); print('allowed',flush=True)
+  s=socket.create_connection((line.split()[0], int(line.split()[1])), timeout=0.8); s.close(); print('allowed',flush=True)
  except OSError: print('blocked',flush=True)
 '''
         child = subprocess.Popen(['/usr/bin/python3', '-u', '-c', probe, str(port)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, preexec_fn=demote)
@@ -69,9 +73,10 @@ for line in sys.stdin:
         os.chown(registration, uid, gid)
         wait(lambda s: s.get('enrolled', {}).get(str(child.pid)) == started)
         def attempt(expected):
-            child.stdin.write('probe\n'); child.stdin.flush()
-            actual = child.stdout.readline().strip()
-            assert actual == expected, (actual, expected)
+            for address, target_port in endpoints:
+                child.stdin.write(f'{address} {target_port}\n'); child.stdin.flush()
+                actual = child.stdout.readline().strip()
+                assert actual == expected, (address, actual, expected)
         attempt('blocked')
         producer = subprocess.Popen(['/usr/bin/sleep', '120'], preexec_fn=demote)
         producer_started = Path(f'/proc/{producer.pid}/stat').read_text().rsplit(')', 1)[1].split()[19]
@@ -90,6 +95,7 @@ for line in sys.stdin:
             producer.kill(); producer.wait()
         helper.terminate(); helper.wait(timeout=10)
         server.close()
+        server6.close()
         subprocess.run(['nft', 'delete', 'table', 'inet', 'claudeguard_' + installation], check=True)
         (Path('/sys/fs/cgroup') / ('claudeguard_' + installation)).rmdir()
         shutil.rmtree(root)

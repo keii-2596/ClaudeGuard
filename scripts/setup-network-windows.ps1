@@ -57,6 +57,7 @@ if ($Data.desktop_path) {
     $Programs += @(Get-ChildItem -LiteralPath $DesktopRoot -File -Recurse -Filter '*.exe' | Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } | ForEach-Object { [ClaudeGuardWfp]::Canonical($_.FullName) })
 }
 $Programs = @($Programs | Sort-Object -Unique)
+if ($Programs.Count -gt 256) { throw '桌面程序目录过大，请准确选择 Claude 安装目录中的 exe。' }
 $ManifestData = @{id=$Id; paths=$Paths; programs=$Programs; request=(Join-Path (Split-Path $Config -Parent) 'network-request.json')}
 if (Test-Path -LiteralPath $Manifest) { Remove-Item -LiteralPath $Manifest -Force }
 foreach ($File in @('status.json','status.tmp')) { Remove-Item -LiteralPath (Join-Path $Root $File) -Force -ErrorAction SilentlyContinue }

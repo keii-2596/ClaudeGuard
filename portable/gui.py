@@ -183,7 +183,8 @@ def show(settings):
 
     def network_status():
         state = network.status(settings)
-        status.set("系统网络助手：" + (state.get('applied_state', 'unknown') if state.get('ready') else state.get('error', '未安装')))
+        labels = {'allowed': '已放行', 'blocked': '已阻断', 'unknown': '尚未确认'}
+        status.set("系统网络助手：" + (labels.get(state.get('applied_state'), '尚未确认') if state.get('ready') else state.get('error', '未安装')))
 
     network_row = ttk.Frame(advanced)
     network_row.pack(fill="x", pady=5)
