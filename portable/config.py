@@ -5,8 +5,10 @@ import os
 from pathlib import Path
 import tempfile
 import sys
+from src import policy
 
 DEFAULTS = {
+    **policy.DEFAULTS,
     "allowed_ips": [], "ip_check_mode": "both", "protection_enabled": True,
     "check_interval": 3, "cli_path": "", "desktop_path": "",
     "http_proxy": "",
@@ -37,6 +39,7 @@ class Settings:
 
     @staticmethod
     def validate(data):
+        policy.settings(data)
         if data["ip_check_mode"] not in ("http", "stun", "both"):
             raise ValueError("检测方式只能是 http、stun 或 both")
         if type(data["protection_enabled"]) is not bool:

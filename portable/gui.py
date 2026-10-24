@@ -5,6 +5,7 @@ from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
 import sys
 
+from src import policy
 from portable.platforms import autostart, stop_tree
 from portable.runtime import check, daemon_process, launch, start_daemon
 
@@ -38,6 +39,20 @@ def show(settings):
     ttk.Label(frame, text="检测方式").pack(anchor="w")
     mode = tk.StringVar(value=LABELS[data["ip_check_mode"]])
     ttk.Combobox(frame, textvariable=mode, values=list(LABELS.values()), state="readonly").pack(fill="x")
+    ttk.Label(frame, text="访问规则").pack(anchor="w", pady=(10, 0))
+    access_labels = {"whitelist": "固定 IP 白名单", "risk": "风险评分"}
+    access = tk.StringVar(value=access_labels[data["access_mode"]])
+    ttk.Combobox(frame, textvariable=access, values=list(access_labels.values()), state="readonly").pack(fill="x")
+    policy_numbers = {}
+    for key, label in [("risk_threshold", "风险分阈值（超过此值时拦截，0～100）"),
+                       ("risk_cache_ttl", "评分缓存有效期（秒，最长 604800）")]:
+        ttk.Label(frame, text=label).pack(anchor="w", pady=(8, 0))
+        var = tk.StringVar(value=str(data[key]))
+        policy_numbers[key] = var
+        ttk.Entry(frame, textvariable=var).pack(fill="x")
+    jump = tk.BooleanVar(value=data["detect_ip_change"])
+    ttk.Checkbutton(frame, text="检测 IP 跳变，变化后须手动确认才能解除拦截", variable=jump).pack(anchor="w", pady=8)
+    ttk.Label(frame, text="风险评分模式会向 proxycheck.io 查询出口 IP，评分在有效期内会缓存在本机。", wraplength=620).pack(anchor="w")
     ttk.Label(frame, text="IP 白名单（每行一个 IP 或 CIDR 网段）").pack(anchor="w", pady=(10, 0))
     ips = tk.Text(frame, height=5)
     ips.insert("1.0", "\n".join(data["allowed_ips"]))
@@ -64,6 +79,9 @@ def show(settings):
         try:
             current = settings.load()
             current.update({k: v.get().strip() for k, v in variables.items()})
+            current.update({key: float(var.get()) for key, var in policy_numbers.items()})
+            current['access_mode'] = next(key for key, label in access_labels.items() if label == access.get())
+            current['detect_ip_change'] = jump.get()
             current.update({"allowed_ips": [x.strip() for x in ips.get("1.0", "end").splitlines() if x.strip()],
                             "ip_check_mode": next(k for k, v in LABELS.items() if v == mode.get()),
                             "protection_enabled": enabled.get()})
@@ -80,13 +98,35 @@ def show(settings):
         status.set("正在检测出口…")
         def work():
             try:
-                result = check(settings.load())
+                result = check(settings.load(), settings.path.parent)
                 labels = {"allowed": "已通过白名单检查", "blocked": "出口未通过检查", "offline": "暂时无法确认出口 IP", "disabled": "防护已关闭"}
-                text = labels[result["state"]] + "\n" + (result["ip"] or result["error"] or "")
+                text = labels[result["state"]] + "\n" + (result.get("reason") or "") + "\n" + (result["ip"] or result["error"] or "")
+                for ip, score in result.get('scores', {}).items():
+                    text += f"\n{ip}：{score['score']:g}/100（{'缓存' if score['cached'] else '刚查询'}）"
             except Exception as exc:
                 text = f"检测失败：{exc}"
             root.after(0, lambda: status.set(text))
         threading.Thread(target=work, daemon=True).start()
+
+    def acknowledge():
+        if not save():
+            return
+        current = settings.load()
+        def confirm(observed):
+            display = "\n".join(f"{key.upper()}：{ip}" for key, ip in observed.items()) or "未获取出口"
+            if not messagebox.askokcancel("确认当前出口", display + "\n\n确认后仍须通过当前访问规则，才会解除跳变拦截。", parent=root):
+                return
+            def apply():
+                result = policy.check(current, settings.path.parent, acknowledge=True, expected_ips=observed)
+                root.after(0, lambda: status.set(result['reason']))
+            threading.Thread(target=apply, daemon=True).start()
+        def probe():
+            try:
+                observed = policy.detect(policy.settings(current))
+                root.after(0, lambda: confirm(observed))
+            except Exception:
+                root.after(0, lambda: status.set("未能确认出口，请检查网络后重试。"))
+        threading.Thread(target=probe, daemon=True).start()
 
     def action(fn):
         try:
@@ -116,6 +156,7 @@ def show(settings):
     row.pack(fill="x", pady=5)
     for title, callback in [("保存", save), ("检测出口", inspect), ("启动守护", start), ("停止守护", stop)]:
         ttk.Button(row, text=title, command=lambda cb=callback: action(cb)).pack(side="left", padx=(0, 6))
+    ttk.Button(frame, text="确认当前出口，解除跳变拦截…", command=acknowledge).pack(anchor="w", pady=5)
     row = ttk.Frame(frame)
     row.pack(fill="x", pady=5)
     ttk.Button(row, text="开启登录自启动", command=lambda: action(lambda: boot(True))).pack(side="left", padx=(0, 6))

@@ -13,6 +13,7 @@ if sys.platform == "win32":
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from portable.config import Settings
+from src import policy
 from portable.platforms import autostart, stop_tree
 from portable.runtime import check, daemon, daemon_process, launch, start_daemon
 
@@ -24,10 +25,11 @@ def main():
     for name in ("gui", "daemon", "start", "stop", "status", "check"):
         sub.add_parser(name)
     edit = sub.add_parser("set", help="修改配置")
-    edit.add_argument("key", choices=("ip_check_mode", "cli_path", "desktop_path", "http_proxy", "check_interval", "protection_enabled"))
+    edit.add_argument("key", choices=("ip_check_mode", "cli_path", "desktop_path", "http_proxy", "check_interval", "protection_enabled", "access_mode", "risk_threshold", "risk_cache_ttl", "detect_ip_change"))
     edit.add_argument("value")
     for name in ("add-ip", "remove-ip"):
         sub.add_parser(name).add_argument("ip")
+    sub.add_parser("ack-ip-change", help="确认当前出口并解除跳变拦截")
     sub.add_parser("autostart").add_argument("action", choices=("enable", "disable"))
     run = sub.add_parser("run", help="检查出口后启动并监控程序")
     run.add_argument("target", choices=("cli", "desktop"))
@@ -49,11 +51,21 @@ def main():
                 stop_tree(process)
             print("后台守护已停止。")
         elif args.command in ("status", "check"):
-            result = check(settings.load())
+            result = check(settings.load(), settings.path.parent)
             result["daemon_running"] = daemon_process(settings) is not None
             print(json.dumps(result, ensure_ascii=False, indent=2))
             if args.command == "check":
                 return 0 if result["state"] in ("allowed", "disabled") else 1
+        elif args.command == "ack-ip-change":
+            data = settings.load()
+            observed = policy.detect(policy.settings(data))
+            print(json.dumps(observed, ensure_ascii=False))
+            if input("确认信任这些出口？输入 yes 继续：").strip() != "yes":
+                print("已取消。")
+                return 1
+            result = policy.check(data, settings.path.parent, acknowledge=True, expected_ips=observed)
+            print(result['reason'])
+            return 0 if result['state'] == 'allowed' else 1
         elif args.command == "run":
             return launch(settings, args.target, args.args)
         elif args.command == "autostart":
@@ -66,9 +78,9 @@ def main():
             data = settings.load()
             if args.command == "set":
                 value = args.value
-                if args.key == "check_interval":
+                if args.key in ("check_interval", "risk_threshold", "risk_cache_ttl"):
                     value = float(value)
-                if args.key == "protection_enabled":
+                if args.key in ("protection_enabled", "detect_ip_change"):
                     if value not in ("true", "false"):
                         raise ValueError("请填写 true 或 false")
                     value = value == "true"

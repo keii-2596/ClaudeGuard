@@ -41,6 +41,17 @@ for (ips, expected) in cases {
 if case .allowed = AppDelegate.bothState(["http": good, "stun": bad], allowedList: ["203.0.113.0/24"]) {} else {
     fatalError("Both distinct whitelisted IPs must pass")
 }
+let native = AppDelegate()
+native.policyScriptPath = CommandLine.arguments[1]
+native.configPath = CommandLine.arguments[2]
+let config: [String: Any] = ["access_mode": "whitelist", "ip_check_mode": "http", "detect_ip_change": true,
+                            "allowed_ips": [good, bad], "protection_enabled": true]
+let initial = native.runPolicy(action: "evaluate", request: ["data": config, "ips": ["http": good]])
+precondition(initial["state"] as? String == "allowed", "Native policy bridge did not allow first trusted exit")
+let changed = native.runPolicy(action: "evaluate", request: ["data": config, "ips": ["http": bad]])
+precondition(changed["state"] as? String == "blocked", "Native policy bridge allowed a whitelisted jump")
+let returned = native.runPolicy(action: "evaluate", request: ["data": config, "ips": ["http": good]])
+precondition(returned["state"] as? String == "blocked", "Jump latch did not survive returning to baseline")
 print("Swift both verdict matrix passed")
 '''
         with tempfile.TemporaryDirectory() as d:
@@ -48,5 +59,5 @@ print("Swift both verdict matrix passed")
             executable = Path(d) / 'check'
             main.write_text(source + harness)
             subprocess.run(['swiftc', str(main), '-o', str(executable)], check=True, capture_output=True, text=True)
-            result = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
+            result = subprocess.run([str(executable), str(Path(__file__).resolve().parents[1] / "src/policy_cli.py"), str(Path(d) / "config.json")], check=True, capture_output=True, text=True)
             self.assertIn('Swift both verdict matrix passed', result.stdout)

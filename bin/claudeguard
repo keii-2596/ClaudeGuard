@@ -9,6 +9,8 @@ PROJECT_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__fi
 sys.path.insert(0, PROJECT_DIR)
 
 from src.config import ConfigManager
+from src import policy
+from pathlib import Path
 from src.brain import get_verdict, daemon_is_up, resolve_display_ip
 from src.integrity import cli_hook_status, repair, repair_cli
 from src.network_guard import sync_hosts_file
@@ -30,6 +32,11 @@ ClaudeGuard：按出口 IP 白名单保护 Claude
   doctor               检查防护是否正常，并修复命令行启动入口
 
 出口与白名单：
+  set-access-mode <whitelist|risk>   选择白名单或风险评分规则
+  set-risk-threshold <0-100>         超过此风险分时拦截
+  set-risk-cache-ttl <秒>            风险评分缓存有效期
+  detect-ip-change <on|off>          开关 IP 跳变检测
+  ack-ip-change                     确认当前出口并解除跳变拦截
   set-ip-check-mode <both|http|stun>  选择检测方式
                        both：HTTP 和 STUN 都须通过，http/stun：只检查对应协议
   add-ip <ip>          将 IP 或 CIDR 网段加入白名单
@@ -74,10 +81,20 @@ def main():
         print(f"IP 白名单： {', '.join(config.allowed_ips) if config.allowed_ips else '尚未设置，将阻止启动'}")
 
         # Same verdict the wrapper and launcher enforce; show its source.
+        if policy.advanced(config.config):
+            print("访问规则：" + ("风险评分" if config.config.get('access_mode') == 'risk' else "IP 白名单"))
+            print(f"风险分阈值：{config.config.get('risk_threshold', 50)}，评分缓存：{config.config.get('risk_cache_ttl', 21600)} 秒")
+            print("IP 跳变检测：" + ("已开启" if config.config.get('detect_ip_change') else "已关闭"))
         up = daemon_is_up()
-        print(f"判定来源： {'🧠 后台守护' if up else '🔌 本次检测（后台守护未运行）'}")
+        print(f"判定来源： {'本次策略检查（复用有效评分缓存）' if policy.advanced(config.config) else ('🧠 后台守护' if up else '🔌 本次检测（后台守护未运行）')}")
         print("\n正在检测出口 IP…" if not up else "")
-        verdict, ip, err = get_verdict(config, timeout=2.0)
+        if policy.advanced(config.config):
+            details = policy.check(config.config, Path(config.path).parent)
+            verdict, ip, err = details['state'], details.get('ip'), details.get('error')
+            for address, score in details.get('scores', {}).items():
+                print(f"风险分：{address}  {score['score']:g}/100（{'缓存' if score['cached'] else '刚查询'}）")
+        else:
+            verdict, ip, err = get_verdict(config, timeout=2.0)
         # get_verdict returns ip=None when protection is off; show the real IP.
         if ip is None:
             ip = resolve_display_ip(config, timeout=2.0)
@@ -85,13 +102,45 @@ def main():
         if not config.protection_enabled:
             print("访问状态：🟡 防护已关闭")
         elif verdict == "allowed":
-            print("访问状态：🟢 已通过白名单检查，允许访问")
+            print("访问状态：🟢 已通过访问检查，允许访问")
         elif verdict == "offline":
             print("访问状态：⚪ 暂时无法确认出口 IP")
         else:
-            print("访问状态：🔴 出口未通过白名单检查，已拦截")
+            print("访问状态：🔴 出口未通过访问检查，已拦截")
         if err:
             print(f"原因： {err}")
+
+    elif cmd in ("set-access-mode", "set-risk-threshold", "set-risk-cache-ttl", "detect-ip-change"):
+        if len(sys.argv) != 3:
+            print("请提供设置值，运行 claudeguard 查看用法。")
+            sys.exit(1)
+        key = {"set-access-mode": "access_mode", "set-risk-threshold": "risk_threshold",
+               "set-risk-cache-ttl": "risk_cache_ttl", "detect-ip-change": "detect_ip_change"}[cmd]
+        try:
+            value = sys.argv[2]
+            if key in ("risk_threshold", "risk_cache_ttl"):
+                value = float(value)
+            if key == "detect_ip_change":
+                if value not in ("on", "off"):
+                    raise ValueError("请填写 on 或 off")
+                value = value == "on"
+            updated = {**config.config, key: value}
+            policy.settings(updated)
+            config.save_config(updated)
+            print("设置已保存。")
+        except ValueError as exc:
+            print(f"设置失败：{exc}")
+            sys.exit(1)
+
+    elif cmd == "ack-ip-change":
+        data = policy.settings(config.config)
+        observed = policy.detect(data)
+        print(json.dumps(observed, ensure_ascii=False))
+        if input("确认信任这些出口？输入 yes 继续：").strip() != "yes":
+            sys.exit(1)
+        result = policy.check(data, Path(config.path).parent, acknowledge=True, expected_ips=observed)
+        print(result['reason'])
+        sys.exit(0 if result['state'] == 'allowed' else 1)
 
     elif cmd == "set-ip-check-mode":
         if len(sys.argv) != 3 or sys.argv[2] not in ("both", "http", "stun"):

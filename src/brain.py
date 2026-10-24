@@ -16,6 +16,8 @@ import os
 import time
 
 from src.ip_checker import perform_ip_check
+from src import policy
+from pathlib import Path
 
 STATE_PATH = os.path.expanduser("~/.config/claudeguard/state.json")
 # The daemon rewrites state.json at least every 3s; 7s tolerates one missed tick.
@@ -51,8 +53,14 @@ def get_verdict(config, timeout=2.0, allow_fallback=True):
     if not config.protection_enabled:
         return "allowed", None, None
 
+    if policy.advanced(config.config):
+        result = policy.check({**config.config, "ip_check_mode": config.ip_check_mode}, Path(config.path).parent)
+        return result['state'], result.get('ip'), result.get('error')
+
     st = read_daemon_state()
     if (st is not None
+            and st.get("access_mode", "whitelist") == "whitelist"
+            and st.get("detect_ip_change", False) is False
             and st.get("protection_enabled") == config.protection_enabled
             and st.get("ip_check_mode") == config.ip_check_mode
             and st.get("allowed_ips") == config.allowed_ips):

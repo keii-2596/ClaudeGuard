@@ -13,9 +13,13 @@ import psutil
 from portable.config import atomic_json
 from portable.platforms import enforce, spawn, stop_tree
 from src.ip_checker import perform_ip_check
+from src import policy
+from portable.config import default_path
 
 
-def check(data):
+def check(data, policy_dir=None):
+    if policy.advanced(data):
+        return policy.check(data, policy_dir or default_path().parent)
     if not data["protection_enabled"]:
         return {"state": "disabled", "ip": None, "error": None}
     ip, allowed, error = perform_ip_check(data["allowed_ips"], mode=data["ip_check_mode"], proxy=data["http_proxy"] or None)
@@ -55,7 +59,7 @@ def daemon(settings):
             try:
                 data = settings.load()
                 last_data = data
-                verdict = check(data)
+                verdict = check(data, settings.path.parent)
                 # Unverified exits also stop protected processes, including on resume.
                 errors = []
                 if verdict["state"] not in ("allowed", "disabled"):
@@ -106,7 +110,7 @@ def start_daemon(settings):
 
 def launch(settings, target, args):
     data = settings.load()
-    verdict = check(data)  # Never trust a cached verdict at launch.
+    verdict = check(data, settings.path.parent)  # Never trust a cached verdict at launch.
     if verdict["state"] not in ("allowed", "disabled"):
         raise ValueError(f"已阻止启动：{verdict['ip'] or verdict['error'] or '出口未通过检查'}")
     process = spawn(data[target + "_path"], args)
@@ -114,7 +118,7 @@ def launch(settings, target, args):
     try:
         while process.poll() is None:
             data = settings.load()
-            if check(data)["state"] not in ("allowed", "disabled"):
+            if check(data, settings.path.parent)["state"] not in ("allowed", "disabled"):
                 stop_tree(tracked)
                 return 1
             time.sleep(data["check_interval"])

@@ -40,6 +40,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var ipCheckMode: String = "both"
     var verdictIPCheckMode: String = "both"
     var detectedIPs: [String: String] = [:]
+    var policyConfig: [String: Any] = [:]
+    var verdictPolicyConfig: [String: Any] = [:]
+    var policyReason: String = ""
+    var policyScriptPath = NSString(string: "~/.local/share/ClaudeGuard/src/policy_cli.py").expandingTildeInPath
+    var riskScores: [String: Any] = [:]
+
+    var usesAdvancedPolicy: Bool {
+        let access = policyConfig["access_mode"] == nil ? "whitelist" : (policyConfig["access_mode"] as? String ?? "invalid")
+        let rawJump = policyConfig["detect_ip_change"]
+        let jump = rawJump as? Bool ?? (rawJump != nil)
+        return access != "whitelist" || jump
+    }
     var verdictAllowedIPs: [String] = []
 
     var dynamicStore: SCDynamicStore?
@@ -57,7 +69,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let checkLock = NSLock()
     var checkRunning = false
     var recheckQueued = false
-    let configPath = NSString(string: "~/.config/claudeguard/config.json").expandingTildeInPath
+    var configPath = NSString(string: "~/.config/claudeguard/config.json").expandingTildeInPath
 
     // Last enforcement pushed to the system, to skip redundant work. nil = never
     // applied, force a first apply.
@@ -232,7 +244,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 case .offline: reason = "暂时无法确认出口 IP，请检查网络和代理设置。"
                 default:       reason = "当前出口未通过白名单检查：\(self.currentIP)。"
                 }
-                self.showBlockedAlert(reason: reason)
+                self.showBlockedAlert(reason: self.policyReason.isEmpty ? reason : self.policyReason)
             }
         }
     }
@@ -273,6 +285,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         loadConfig()
         let checkedMode = ipCheckMode
         let checkedIPs = allowedIPs
+        let checkedPolicy = policyConfig
+        let advancedPolicy = usesAdvancedPolicy
+        policyReason = ""
+        riskScores = [:]
 
         detectedIPs = [:]
         let newState: GuardState
@@ -295,7 +311,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             group.wait()
             detectedIPs = results
-            if checkedMode == "both" {
+            if advancedPolicy {
+                let outcome = runPolicy(action: "evaluate", request: ["data": checkedPolicy, "ips": results])
+                policyReason = outcome["reason"] as? String ?? "策略检查失败，暂不放行"
+                riskScores = outcome["scores"] as? [String: Any] ?? [:]
+                currentIP = checkedMode == "both" ? Self.describeBoth(results) : (results[checkedMode] ?? "No Internet")
+                if outcome["state"] as? String == "allowed" {
+                    newState = .allowed(ip: currentIP)
+                } else {
+                    newState = .blocked(ip: currentIP)
+                }
+            } else if checkedMode == "both" {
                 currentIP = Self.describeBoth(results)
                 newState = Self.bothState(results, allowedList: checkedIPs)
             } else if let ip = results[checkedMode] {
@@ -313,6 +339,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         state = newState
         verdictIPCheckMode = checkedMode
         verdictAllowedIPs = checkedIPs
+        verdictPolicyConfig = checkedPolicy
         apply(from: previous, to: newState)
         writeStateFile()  // publish verdict for the CLI wrapper
 
@@ -334,6 +361,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             "state": stateStr,
             "ip": currentIP,
             "detected_ips": detectedIPs,
+            "access_mode": verdictPolicyConfig["access_mode"] ?? "whitelist",
+            "detect_ip_change": verdictPolicyConfig["detect_ip_change"] ?? false,
+            "reason": policyReason,
+            "scores": riskScores,
             "ip_check_mode": verdictIPCheckMode,
             "allowed_ips": verdictAllowedIPs,
             "protection_enabled": stateStr != "disabled",
@@ -378,7 +409,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let killed = killDesktopIfRunning()
             if killed && !hasAlertedThisBlock {   // alert once per blocked episode
                 hasAlertedThisBlock = true
-                showBlockedAlert(reason: "当前出口未通过白名单检查：\(currentIP)。")
+                showBlockedAlert(reason: policyReason.isEmpty ? "当前出口未通过白名单检查：\(currentIP)。" : policyReason)
             }
         case .allowed, .disabled, .offline:
             // offline: don't kill a running app — nothing to protect against.
@@ -624,6 +655,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: configPath)),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         if let ips = json["allowed_ips"] as? [String] { allowedIPs = ips }
+        policyConfig = json
         let storedMode = json["ip_check_mode"] == nil ? "both" : ((json["ip_check_mode"] as? String) ?? "invalid")
         ipCheckMode = storedMode == "auto" ? "both" : storedMode
         if let p = json["protection_enabled"] as? Bool { protectionEnabled = p }
@@ -636,6 +668,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         var json: [String: Any] = [:]
         if let data = try? Data(contentsOf: URL(fileURLWithPath: configPath)),
            let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { json = existing }
+        for key in ["access_mode", "risk_threshold", "risk_cache_ttl", "detect_ip_change"] {
+            if let value = policyConfig[key] { json[key] = value }
+        }
         json["allowed_ips"] = allowedIPs
         json["ip_check_mode"] = ipCheckMode
         json["protection_enabled"] = protectionEnabled
@@ -643,7 +678,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         json["model_override_enabled"] = modelOverrideEnabled
         json["default_model"] = defaultModel
         if let data = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) {
-            try? data.write(to: URL(fileURLWithPath: configPath))
+            try? data.write(to: URL(fileURLWithPath: configPath), options: .atomic)
         }
     }
 
@@ -733,6 +768,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let ipItem = NSMenuItem(title: "🌐 当前出口：\(currentIP == "No Internet" ? "未获取" : currentIP)", action: nil, keyEquivalent: "")
         ipItem.isEnabled = false
         menu.addItem(ipItem)
+        if !policyReason.isEmpty {
+            let reason = NSMenuItem(title: policyReason, action: nil, keyEquivalent: "")
+            reason.isEnabled = false
+            menu.addItem(reason)
+        }
+        for ip in riskScores.keys.sorted() {
+            if let entry = riskScores[ip] as? [String: Any], let score = entry["score"] as? NSNumber {
+                let cached = entry["cached"] as? Bool == true ? "缓存" : "刚查询"
+                let detail = NSMenuItem(title: "风险分：\(ip)  \(score)/100（\(cached)）", action: nil, keyEquivalent: "")
+                detail.isEnabled = false
+                menu.addItem(detail)
+            }
+        }
 
         menu.addItem(.separator())
 
@@ -757,6 +805,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         modeItem.submenu = modeMenu
         menu.addItem(modeItem)
+
+        let access = policyConfig["access_mode"] as? String ?? "whitelist"
+        let rules = NSMenuItem(title: "访问规则：" + (access == "risk" ? "风险评分" : "IP 白名单"), action: nil, keyEquivalent: "")
+        let rulesMenu = NSMenu()
+        for (value, title) in [("whitelist", "固定 IP 白名单"), ("risk", "按风险分阈值判断")] {
+            let item = NSMenuItem(title: title, action: #selector(onSelectAccessMode(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = value
+            item.state = access == value ? .on : .off
+            rulesMenu.addItem(item)
+        }
+        rules.submenu = rulesMenu
+        menu.addItem(rules)
+        for (title, selector) in [("风险分阈值…", #selector(onRiskThreshold)), ("评分缓存有效期…", #selector(onRiskCacheTTL))] {
+            let item = NSMenuItem(title: title, action: selector, keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+        let jump = policyConfig["detect_ip_change"] as? Bool == true
+        let jumpToggle = NSMenuItem(title: jump ? "✓ 检测 IP 跳变" : "检测 IP 跳变", action: #selector(onToggleIPChange), keyEquivalent: "")
+        jumpToggle.target = self
+        menu.addItem(jumpToggle)
+        if jump {
+            let ack = NSMenuItem(title: "确认当前出口，解除跳变拦截…", action: #selector(onAcknowledgeIPChange), keyEquivalent: "")
+            ack.target = self
+            menu.addItem(ack)
+        }
 
         let upd = NSMenuItem(title: blockAutoUpdates ? "✓ 已禁止自动更新" : "允许自动更新", action: #selector(onToggleUpdates), keyEquivalent: "")
         upd.target = self
@@ -797,6 +872,97 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func recheckAsync() {
         startBlinking()
         DispatchQueue.global(qos: .userInitiated).async { self.recheck() }
+    }
+
+    func runPolicy(action: String, request: [String: Any]) -> [String: Any] {
+        let failure: [String: Any] = ["state": "blocked", "reason": "策略检查失败，暂不放行"]
+        guard let encoded = try? JSONSerialization.data(withJSONObject: request) else { return failure }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = [policyScriptPath, "--config", configPath, action]
+        let input = Pipe(), output = Pipe()
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        let done = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in done.signal() }
+        do { try process.run() } catch { return failure }
+        input.fileHandleForWriting.write(encoded)
+        input.fileHandleForWriting.closeFile()
+        if done.wait(timeout: .now() + 45) == .timedOut {
+            process.terminate()
+            return failure
+        }
+        let raw = output.fileHandleForReading.readDataToEndOfFile()
+        return (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any] ?? failure
+    }
+
+    @objc func onSelectAccessMode(_ sender: NSMenuItem) {
+        guard let mode = sender.representedObject as? String else { return }
+        if mode == "risk" {
+            let alert = NSAlert()
+            alert.messageText = "使用风险评分判断出口？"
+            alert.informativeText = "将向 proxycheck.io 查询出口 IP 的风险分，并缓存结果。超过你设置的阈值或无法取得有效评分时，都会拦截。"
+            alert.addButton(withTitle: "使用风险评分")
+            alert.addButton(withTitle: "取消")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        policyConfig["access_mode"] = mode
+        saveConfig()
+        recheckAsync()
+    }
+
+    func setPolicyNumber(key: String, title: String, fallback: Double, min: Double, max: Double) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = "可填范围：\(min)～\(max)。"
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+        input.stringValue = String((policyConfig[key] as? NSNumber)?.doubleValue ?? fallback)
+        alert.accessoryView = input
+        alert.addButton(withTitle: "保存")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard let number = Double(input.stringValue), number.isFinite, number >= min, number <= max else {
+            let error = NSAlert()
+            error.messageText = "输入无效，请填写范围内的数字。"
+            error.runModal()
+            return
+        }
+        policyConfig[key] = number
+        saveConfig()
+        recheckAsync()
+    }
+    @objc func onRiskThreshold() {
+        setPolicyNumber(key: "risk_threshold", title: "超过多少风险分时拦截？", fallback: 50, min: 0, max: 100)
+    }
+    @objc func onRiskCacheTTL() {
+        setPolicyNumber(key: "risk_cache_ttl", title: "评分缓存有效期（秒）", fallback: 21600, min: 1, max: 604800)
+    }
+    @objc func onToggleIPChange() {
+        policyConfig["detect_ip_change"] = !(policyConfig["detect_ip_change"] as? Bool ?? false)
+        saveConfig()
+        recheckAsync()
+    }
+    @objc func onAcknowledgeIPChange() {
+        let expected = detectedIPs
+        let data = policyConfig
+        let alert = NSAlert()
+        alert.messageText = "确认信任当前出口？"
+        alert.informativeText = "\(currentIP)\n\n确认后仍须通过白名单或风险分检查，才会解除跳变拦截。"
+        alert.addButton(withTitle: "确认这些出口")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = self.runPolicy(action: "ack", request: ["data": data, "expected_ips": expected])
+            DispatchQueue.main.async {
+                let notice = NSAlert()
+                notice.messageText = result["state"] as? String == "allowed" ? "已确认当前出口" : "未解除拦截"
+                notice.informativeText = result["reason"] as? String ?? "策略检查失败"
+                notice.addButton(withTitle: "知道了")
+                notice.runModal()
+                self.recheckAsync()
+            }
+        }
     }
 
     @objc func onRecheck() { recheckAsync() }

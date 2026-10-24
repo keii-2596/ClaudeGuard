@@ -17,7 +17,7 @@ def launch_claude_desktop():
         open_real_app(config)
         return
 
-    if not config.allowed_ips:
+    if not config.allowed_ips and config.config.get("access_mode", "whitelist") == "whitelist":
         show_mac_alert(
             "ClaudeGuard 已拦截",
             "尚未设置 IP 白名单，已阻止启动 Claude 桌面端。\n\n请运行 claudeguard add-ip <出口IP> 添加允许使用的出口。"
@@ -38,7 +38,7 @@ def launch_claude_desktop():
             err_msg = f"\n原因：{err}" if err else ""
             show_mac_alert(
                 "ClaudeGuard 已拦截",
-                f"当前出口未通过白名单检查，已阻止启动 Claude 桌面端。\n\n当前出口：{ip_str}{err_msg}\n\n请检查出口 IP 和白名单设置。"
+                f"当前出口未通过访问检查，已阻止启动 Claude 桌面端。\n\n当前出口：{ip_str}{err_msg}\n\n请检查出口 IP 和当前访问规则。"
             )
         sys.exit(1)
 

@@ -1,11 +1,13 @@
 import json
 import os
 import sys
+from src.policy import DEFAULTS as POLICY_DEFAULTS
 
 CONFIG_DIR = os.path.expanduser("~/.config/claudeguard")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 
 DEFAULT_CONFIG = {
+    **POLICY_DEFAULTS,
     "allowed_ips": [],
     "ip_check_mode": "both",
     "protection_enabled": True,

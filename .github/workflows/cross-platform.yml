@@ -1,7 +1,7 @@
 name: Cross-platform checks
 on:
   push:
-    branches: [main, feat/ip-check-mode]
+    branches: [main, 'feat/**']
   pull_request:
 permissions:
   contents: read

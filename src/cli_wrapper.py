@@ -53,10 +53,7 @@ def print_block_banner(ip, err, verb):
         print(f" 原因： {err}", file=sys.stderr)
     print(f"--------------------------------------------------", file=sys.stderr)
     print(f" 本次启动已取消，请检查出口 IP 和白名单设置。", file=sys.stderr)
-    if ip and not ip.startswith("HTTP:"):
-        print(f" 确认该出口可信后，可加入白名单： claudeguard add-ip {current_ip_str}", file=sys.stderr)
-    else:
-        print(" 运行 claudeguard status 查看 HTTP 和 STUN 出口。", file=sys.stderr)
+    print(" 运行 claudeguard status 查看出口和拦截原因。", file=sys.stderr)
     print(f"\033[0m", file=sys.stderr)
 
 def main():
@@ -74,7 +71,7 @@ def main():
 
     # Restore the terminal BEFORE printing: force_restore_terminal() flips the
     # screen buffer, so printing first would wipe the message we just wrote.
-    if not config.allowed_ips:
+    if not config.allowed_ips and config.config.get("access_mode", "whitelist") == "whitelist":
         force_restore_terminal()
         print("\033[91m[ClaudeGuard] 🚫 尚未设置 IP 白名单，已阻止启动。\033[0m", file=sys.stderr)
         print("请运行 claudeguard add-ip <出口IP> 添加允许使用的出口。", file=sys.stderr)
@@ -196,7 +193,7 @@ def run_real_claude(config):
             banner_ip, banner_err = ip, err
 
     if banner_ip is not None:
-        print_block_banner(banner_ip, banner_err, "出口未通过白名单检查，Claude Code 已停止运行")
+        print_block_banner(banner_ip, banner_err, "出口未通过访问检查，Claude Code 已停止运行")
         sys.exit(1)
 
     sys.exit(rc)
