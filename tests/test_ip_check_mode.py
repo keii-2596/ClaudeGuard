@@ -25,6 +25,15 @@ class IPModeTests(unittest.TestCase):
             self.assertIsNone(ip_checker.fetch_public_ip(mode='http')[0])
             stun.assert_not_called()
 
+    def test_http_explicit_proxy_is_used_without_global_mutation(self):
+        opener = unittest.mock.MagicMock()
+        opener.open.return_value = self.response()
+        with patch.object(ip_checker.urllib.request, 'build_opener', return_value=opener) as build, patch.object(
+                ip_checker.urllib.request, 'urlopen') as global_open:
+            self.assertEqual(ip_checker.fetch_public_ip(mode='http', proxy='http://127.0.0.1:7897')[0], '203.0.113.10')
+            self.assertEqual(build.call_args.args[0].proxies['https'], 'http://127.0.0.1:7897')
+            global_open.assert_not_called()
+
     def test_stun_never_queries_http(self):
         with patch.object(ip_checker, 'stun_public_ip', return_value='203.0.113.20'), patch.object(
                 ip_checker.urllib.request, 'urlopen') as http:

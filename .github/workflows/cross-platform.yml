@@ -38,3 +38,21 @@ jobs:
             [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$errors) | Out-Null
             if ($errors.Count) { throw ($errors | Out-String) }
           }
+      - name: Linux installer smoke test
+        if: runner.os == 'Linux'
+        run: |
+          bash scripts/install-linux.sh
+          "$HOME/.local/bin/claudeguard" --config "$RUNNER_TEMP/installed-config.json" set ip_check_mode http
+          "$HOME/.local/bin/claudeguard" --config "$RUNNER_TEMP/installed-config.json" add-ip 203.0.113.10
+      - name: Windows installer smoke test
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/install-windows.ps1
+          $Python = Join-Path $env:LOCALAPPDATA 'ClaudeGuard\venv\Scripts\python.exe'
+          $Entry = Join-Path $env:LOCALAPPDATA 'ClaudeGuard\portable\main.py'
+          $Config = Join-Path $env:RUNNER_TEMP 'installed-config.json'
+          & $Python $Entry --config $Config set ip_check_mode http
+          if ($LASTEXITCODE -ne 0) { throw 'Installed CLI failed' }
+          & $Python $Entry --config $Config add-ip 203.0.113.10
+          if ($LASTEXITCODE -ne 0) { throw 'Installed configuration failed' }

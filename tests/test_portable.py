@@ -108,6 +108,30 @@ class PortableTests(unittest.TestCase):
         process.wait(timeout=5)
         self.assertIsNotNone(process.returncode)
 
+    def test_real_daemon_start_singleton_and_stop(self):
+        from portable.runtime import start_daemon, daemon_process
+        from portable.platforms import stop_tree
+        self.data['protection_enabled'] = False  # no network or process enforcement
+        self.settings.save(self.data)
+        child = start_daemon(self.settings)
+        def cleanup():
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=5)
+        self.addCleanup(cleanup)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not daemon_process(self.settings):
+            time.sleep(0.05)
+        process = daemon_process(self.settings)
+        self.assertIsNotNone(process)
+        self.assertEqual(process.pid, child.pid)
+        self.assertIsNone(start_daemon(self.settings))
+        state = json.loads(self.settings.path.with_name('portable-state.json').read_text())
+        self.assertEqual(state['state'], 'disabled')
+        stop_tree(process)
+        child.wait(timeout=5)
+        self.assertIsNone(daemon_process(self.settings))
+
     def test_stale_pid_record_is_ignored(self):
         from portable.runtime import daemon_process
         self.settings.path.with_name('portable-state.json').write_text(json.dumps({'pid': os.getpid(), 'process_created': 0}))

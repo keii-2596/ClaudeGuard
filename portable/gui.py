@@ -14,9 +14,19 @@ LABELS = {"both": "同时检查 HTTP 和 STUN", "http": "只检查 HTTP", "stun"
 def show(settings):
     root = tk.Tk()
     root.title("ClaudeGuard 设置")
-    root.geometry("680x570")
-    frame = ttk.Frame(root, padding=18)
-    frame.pack(fill="both", expand=True)
+    root.geometry("720x680")
+    root.minsize(560, 400)
+    outer = ttk.Frame(root)
+    outer.pack(fill="both", expand=True)
+    canvas = tk.Canvas(outer, highlightthickness=0)
+    scroll = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+    canvas.configure(yscrollcommand=scroll.set)
+    scroll.pack(side="right", fill="y")
+    canvas.pack(side="left", fill="both", expand=True)
+    frame = ttk.Frame(canvas, padding=18)
+    content = canvas.create_window((0, 0), window=frame, anchor="nw")
+    frame.bind("<Configure>", lambda event: canvas.configure(scrollregion=canvas.bbox("all")))
+    canvas.bind("<Configure>", lambda event: canvas.itemconfigure(content, width=event.width))
     try:
         data = settings.load()
     except (ValueError, OSError) as exc:

@@ -100,7 +100,7 @@ def start_daemon(settings):
         python = python.with_name("pythonw.exe")
     settings.path.parent.mkdir(parents=True, exist_ok=True)
     with open(settings.path.with_name("portable-console.log"), "ab") as output:
-        subprocess.Popen([str(python), str(Path(__file__).with_name("main.py")), "--config", str(settings.path), "daemon"],
+        return subprocess.Popen([str(python), str(Path(__file__).with_name("main.py")), "--config", str(settings.path), "daemon"],
                          stdout=output, stderr=output, start_new_session=(os.name != "nt"))
 
 
