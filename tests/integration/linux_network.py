@@ -73,7 +73,7 @@ for line in sys.stdin:
             actual = child.stdout.readline().strip()
             assert actual == expected, (actual, expected)
         attempt('blocked')
-        atomic_json(request, {'schema': 1, 'allowed': True, 'configured_paths': paths, 'expires_at': time.time() + 30})
+        atomic_json(request, {'schema': 2, 'producer_pid': child.pid, 'producer_start': started, 'allowed': True, 'configured_paths': paths, 'expires_at': time.time() + 30})
         os.chown(request, uid, gid)
         wait(lambda s: s.get('applied_state') == 'allowed')
         attempt('allowed')
@@ -98,7 +98,9 @@ for line in sys.stdin:
     installer = source / 'scripts/setup-network-linux.py'
     subprocess.run(['/usr/bin/python3', '-I', str(installer), '--config', str(settings.path)], check=True)
     try:
-        atomic_json(request, {'schema': 1, 'allowed': True, 'configured_paths': paths, 'expires_at': time.time() + 60})
+        producer = subprocess.Popen(['/usr/bin/sleep', '120'], preexec_fn=demote)
+        producer_start = Path(f'/proc/{producer.pid}/stat').read_text().rsplit(')', 1)[1].split()[19]
+        atomic_json(request, {'schema': 2, 'producer_pid': producer.pid, 'producer_start': producer_start, 'allowed': True, 'configured_paths': paths, 'expires_at': time.time() + 60})
         os.chown(request, uid, gid)
         client = '''import os,sys
 sys.path.insert(0,sys.argv[1])
@@ -111,4 +113,6 @@ print('Guarded Linux launch enrolled before exec')
 '''
         subprocess.run(['/usr/bin/python3', '-c', client, str(source), str(settings.path)], check=True, preexec_fn=demote, timeout=30)
     finally:
+        if 'producer' in locals():
+            producer.kill(); producer.wait()
         subprocess.run(['/usr/bin/python3', '-I', str(installer), '--config', str(settings.path), '--remove'], check=True)

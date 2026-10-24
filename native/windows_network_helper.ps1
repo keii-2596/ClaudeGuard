@@ -28,7 +28,10 @@ try {
         try {
             $Request = Read-SharedJson $Config.request
             $SamePaths = (($Request.configured_paths | ConvertTo-Json -Compress) -ceq ($Config.paths | ConvertTo-Json -Compress))
-            $Allowed = ($Request.schema -eq 1 -and $Request.allowed -is [bool] -and $Request.allowed -eq $true -and
+            $Producer = Get-Process -Id $Request.producer_pid -ErrorAction Stop
+            $Created = ([DateTimeOffset]$Producer.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds() / 1000.0
+            $Alive = [Math]::Abs($Created - [double]$Request.producer_start) -lt 0.01
+            $Allowed = ($Request.schema -eq 2 -and $Alive -and $Request.allowed -is [bool] -and $Request.allowed -eq $true -and
                 $Request.expires_at -is [ValueType] -and $Request.expires_at -isnot [bool] -and
                 $Request.expires_at -gt $Now -and $Request.expires_at -le ($Now + 90) -and $SamePaths)
         } catch { $Allowed = $false }

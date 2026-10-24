@@ -31,7 +31,10 @@ def read_request(path, uid):
 
 
 def start_time(pid):
-    return Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[19]
+    fields = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()
+    if fields[0] == 'Z':
+        raise ProcessLookupError('producer exited')
+    return fields[19]
 
 
 class Worker:
@@ -97,7 +100,10 @@ class Worker:
             request = read_request(Path(self.config['request']), self.uid)
             now = time.time()
             expires = request['expires_at']
-            allowed = (request.get('schema') == 1 and request.get('allowed') is True
+            pid = request.get('producer_pid')
+            alive = (type(pid) is int and pid > 1 and Path(f'/proc/{pid}').stat().st_uid == self.uid
+                     and start_time(pid) == request.get('producer_start'))
+            allowed = (request.get('schema') == 2 and alive and request.get('allowed') is True
                        and isinstance(expires, (int, float)) and not isinstance(expires, bool)
                        and now < expires <= now + 90 and request.get('configured_paths') == self.config['paths'])
         except (OSError, ValueError, TypeError, KeyError):

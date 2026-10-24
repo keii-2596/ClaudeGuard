@@ -45,7 +45,9 @@ def publish(settings, data, verdict):
     enabled = data.get('network_guard_enabled', False)
     if not enabled and not (directory(settings) / 'manifest.json').is_file():
         return None
-    request = {'schema': 1, 'allowed': not enabled or verdict['state'] in ('allowed', 'disabled'),
+    import psutil
+    producer_start = process_start(os.getpid()) if sys.platform.startswith('linux') else psutil.Process().create_time()
+    request = {'schema': 2, 'producer_pid': os.getpid(), 'producer_start': producer_start, 'allowed': not enabled or verdict['state'] in ('allowed', 'disabled'),
                'expires_at': time.time() + min(90, data['check_interval'] + 15),
                'configured_paths': paths(data), 'nonce': uuid.uuid4().hex}
     atomic_json(settings.path.with_name('network-request.json'), request)

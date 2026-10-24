@@ -34,7 +34,7 @@ try {
     if ($LASTEXITCODE -eq 0) { throw 'WFP failed to block loopback connection' }
     & $Probe $Port6 ipv6
     if ($LASTEXITCODE -eq 0) { throw 'WFP failed to block IPv6 loopback connection' }
-    @{schema=1; allowed=$true; expires_at=([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()+60); configured_paths=@($Probe.ToLowerInvariant())} | ConvertTo-Json | Set-Content $Request -Encoding UTF8
+    @{schema=2; producer_pid=$PID; producer_start=(([DateTimeOffset](Get-Process -Id $PID).StartTime.ToUniversalTime()).ToUnixTimeMilliseconds()/1000.0); allowed=$true; expires_at=([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()+60); configured_paths=@($Probe.ToLowerInvariant())} | ConvertTo-Json | Set-Content $Request -Encoding UTF8
     & $PowerShell -NoProfile -ExecutionPolicy Bypass -File $Helper -Manifest $Manifest -Once
     if ($LASTEXITCODE -ne 0) { throw 'WFP allow setup failed' }
     & $Probe $Port
