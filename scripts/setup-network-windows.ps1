@@ -3,7 +3,8 @@ $ErrorActionPreference = 'Stop'
 $Admin = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $Admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw '请以管理员权限运行网络助手安装器。' }
 Add-Type -Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'native\windows_wfp.cs')
-$Config = [ClaudeGuardWfp]::Canonical([IO.Path]::GetFullPath($Config))
+$Config = [IO.Path]::GetFullPath($Config)
+if (Test-Path -LiteralPath $Config) { $Config = [ClaudeGuardWfp]::Canonical($Config) } elseif ($Remove) { $Config = $Config.ToLowerInvariant() } else { throw '配置文件不存在。' }
 $Hash = [Security.Cryptography.SHA256]::Create()
 try { $Id = ([BitConverter]::ToString($Hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($Config)))).Replace('-', '').Substring(0,16).ToLowerInvariant() } finally { $Hash.Dispose() }
 $Base = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'ClaudeGuardNetwork'

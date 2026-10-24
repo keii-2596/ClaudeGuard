@@ -16,9 +16,9 @@ parser.add_argument('--remove', action='store_true')
 args = parser.parse_args()
 if not sys.platform.startswith('linux') or os.geteuid() != 0:
     raise SystemExit('请在 Linux 上用 sudo 运行网络助手安装器')
-config = args.config.resolve(strict=True)
-uid = config.stat().st_uid
-if uid == 0:
+config = args.config.resolve(strict=not args.remove)
+uid = config.stat().st_uid if config.exists() else -1
+if uid == 0 and not args.remove:
     raise SystemExit('请指定普通用户的配置文件，不支持将 Claude 作为 root 运行')
 installation = hashlib.sha256(str(config).encode()).hexdigest()[:16]
 name = 'claudeguard_' + installation
@@ -27,12 +27,14 @@ unit_name = 'claudeguard-network-' + installation + '.service'
 unit = Path('/etc/systemd/system') / unit_name
 cgroup = Path('/sys/fs/cgroup') / name
 if args.remove:
-    subprocess.run(['systemctl', 'disable', '--now', unit_name], check=True)
+    if unit.exists():
+        subprocess.run(['systemctl', 'disable', '--now', unit_name], check=True)
     nft = shutil.which('nft')
     if nft and subprocess.run([nft, 'list', 'table', 'inet', name], capture_output=True).returncode == 0:
         subprocess.run([nft, 'delete', 'table', 'inet', name], check=True)
     unit.unlink(missing_ok=True)
-    shutil.rmtree(root)
+    if root.exists():
+        shutil.rmtree(root)
     subprocess.run(['systemctl', 'daemon-reload'], check=True)
     try:
         cgroup.rmdir()

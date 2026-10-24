@@ -119,8 +119,12 @@ def show(settings):
         def work():
             try:
                 result = check(settings.load(), settings.path.parent)
-                labels = {"allowed": "已通过白名单检查", "blocked": "出口未通过检查", "offline": "暂时无法确认出口 IP", "disabled": "防护已关闭"}
+                labels = {"allowed": "出口已通过访问检查", "blocked": "出口未通过检查", "offline": "暂时无法确认出口 IP", "disabled": "防护已关闭"}
                 text = labels[result["state"]] + "\n" + (result.get("reason") or "") + "\n" + (result["ip"] or result["error"] or "")
+                if settings.load()['network_guard_enabled']:
+                    kernel = network.status(settings)
+                    labels = {'allowed': '已放行', 'blocked': '已阻断', 'unknown': '尚未确认'}
+                    text += "\n系统网络助手：" + (labels.get(kernel.get('applied_state'), '尚未确认') if kernel.get('ready') else kernel.get('error', '未安装'))
                 for ip, score in result.get('scores', {}).items():
                     text += f"\n{ip}：{score['score']:g}/100（{'缓存' if score['cached'] else '刚查询'}）"
             except Exception as exc:
