@@ -820,22 +820,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(modeItem)
 
         let access = policyConfig["access_mode"] as? String ?? "whitelist"
-        let rules = NSMenuItem(title: "访问规则：" + (access == "risk" ? "风险评分" : "IP 白名单"), action: nil, keyEquivalent: "")
-        let rulesMenu = NSMenu()
-        for (value, title) in [("whitelist", "固定 IP 白名单"), ("risk", "按风险分阈值判断")] {
-            let item = NSMenuItem(title: title, action: #selector(onSelectAccessMode(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = value
-            item.state = access == value ? .on : .off
-            rulesMenu.addItem(item)
-        }
-        rules.submenu = rulesMenu
-        menu.addItem(rules)
-        if access == "risk" {
-            let threshold = NSMenuItem(title: "风险分阈值…", action: #selector(onRiskThreshold), keyEquivalent: "")
-            threshold.target = self
-            menu.addItem(threshold)
-        }
         let jump = policyConfig["detect_ip_change"] as? Bool == true
         let jumpToggle = NSMenuItem(title: jump ? "✓ 检测 IP 跳变" : "检测 IP 跳变", action: #selector(onToggleIPChange), keyEquivalent: "")
         jumpToggle.target = self
@@ -848,10 +832,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let settingsItem = NSMenuItem(title: "设置", action: nil, keyEquivalent: "")
         let settingsMenu = NSMenu()
-        let cache = NSMenuItem(title: "评分缓存时间…", action: #selector(onRiskCacheTTL), keyEquivalent: "")
-        cache.target = self
-        settingsMenu.addItem(cache)
-        settingsMenu.addItem(.separator())
+        if access == "risk" {
+            let cache = NSMenuItem(title: "评分缓存时间…", action: #selector(onRiskCacheTTL), keyEquivalent: "")
+            cache.target = self
+            settingsMenu.addItem(cache)
+            settingsMenu.addItem(.separator())
+        }
         let upd = NSMenuItem(title: blockAutoUpdates ? "✓ 已禁止自动更新" : "允许自动更新", action: #selector(onToggleUpdates), keyEquivalent: "")
         upd.target = self
         settingsMenu.addItem(upd)
@@ -872,16 +858,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(settingsItem)
         menu.addItem(.separator())
 
-        for ip in Set(detectedIPs.values).sorted() where !allowedIPs.contains(ip) {
-            let add = NSMenuItem(title: "➕ 将 \(ip) 加入白名单", action: #selector(onAddCurrentIP(_:)), keyEquivalent: "")
-            add.target = self
-            add.representedObject = ip
-            menu.addItem(add)
+        let rules = NSMenuItem(title: "访问规则：" + (access == "risk" ? "风险评分" : "IP 白名单"), action: nil, keyEquivalent: "")
+        let rulesMenu = NSMenu()
+        for (value, title) in [("whitelist", "固定 IP 白名单"), ("risk", "按风险分阈值判断")] {
+            let item = NSMenuItem(title: title, action: #selector(onSelectAccessMode(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = value
+            item.state = access == value ? .on : .off
+            rulesMenu.addItem(item)
         }
+        rules.submenu = rulesMenu
+        menu.addItem(rules)
+        if access == "risk" {
+            let thresholdValue = policyConfig["risk_threshold"] as? NSNumber ?? 50
+            let threshold = NSMenuItem(title: "风险分阈值：\(thresholdValue)…", action: #selector(onRiskThreshold), keyEquivalent: "")
+            threshold.target = self
+            menu.addItem(threshold)
+        } else if access == "whitelist" {
+            for ip in Set(detectedIPs.values).sorted() where !allowedIPs.contains(ip) {
+                let add = NSMenuItem(title: "➕ 将 \(ip) 加入白名单", action: #selector(onAddCurrentIP(_:)), keyEquivalent: "")
+                add.target = self
+                add.representedObject = ip
+                menu.addItem(add)
+            }
 
-        let manage = NSMenuItem(title: "⚙️ 管理 IP 白名单…", action: #selector(onManageIPs), keyEquivalent: "")
-        manage.target = self
-        menu.addItem(manage)
+            let manage = NSMenuItem(title: "⚙️ 管理 IP 白名单…", action: #selector(onManageIPs), keyEquivalent: "")
+            manage.target = self
+            menu.addItem(manage)
+
+        }
 
         menu.addItem(.separator())
 
