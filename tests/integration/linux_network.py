@@ -89,3 +89,26 @@ for line in sys.stdin:
         subprocess.run(['nft', 'delete', 'table', 'inet', 'claudeguard_' + installation], check=True)
         (Path('/sys/fs/cgroup') / ('claudeguard_' + installation)).rmdir()
         shutil.rmtree(root)
+    # Exercise root-owned installation and the paused-exec enrollment handshake.
+    from portable.config import DEFAULTS
+    settings.path.write_text(json.dumps({**DEFAULTS, 'cli_path': '/usr/bin/true', 'network_guard_enabled': True}))
+    os.chown(settings.path, uid, gid)
+    os.chown(folder, uid, gid)
+    os.chown(registrations, uid, gid)
+    installer = source / 'scripts/setup-network-linux.py'
+    subprocess.run(['/usr/bin/python3', '-I', str(installer), '--config', str(settings.path)], check=True)
+    try:
+        atomic_json(request, {'schema': 1, 'allowed': True, 'configured_paths': paths, 'expires_at': time.time() + 60})
+        os.chown(request, uid, gid)
+        client = '''import os,sys
+sys.path.insert(0,sys.argv[1])
+from portable.config import Settings
+from portable import network
+settings=Settings(sys.argv[2]); data=settings.load()
+process=network.guarded_spawn(settings,data,data['cli_path'],[],os.environ.copy())
+assert process.wait(timeout=5)==0
+print('Guarded Linux launch enrolled before exec')
+'''
+        subprocess.run(['/usr/bin/python3', '-c', client, str(source), str(settings.path)], check=True, preexec_fn=demote, timeout=30)
+    finally:
+        subprocess.run(['/usr/bin/python3', '-I', str(installer), '--config', str(settings.path), '--remove'], check=True)
