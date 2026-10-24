@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $InstallRoot = Join-Path $env:LOCALAPPDATA 'ClaudeGuard'
 $Python = Join-Path $InstallRoot 'venv\Scripts\python.exe'
 $Entry = Join-Path $InstallRoot 'portable\main.py'

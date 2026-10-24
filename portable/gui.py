@@ -17,7 +17,12 @@ def show(settings):
     root.geometry("680x570")
     frame = ttk.Frame(root, padding=18)
     frame.pack(fill="both", expand=True)
-    data = settings.load()
+    try:
+        data = settings.load()
+    except (ValueError, OSError) as exc:
+        messagebox.showerror("配置读取失败", f"{exc}\n\n请检查配置文件：{settings.path}", parent=root)
+        root.destroy()
+        return
     status = tk.StringVar(value="尚未检测")
     ttk.Label(frame, textvariable=status, wraplength=620).pack(anchor="w", pady=(0, 12))
     ttk.Label(frame, text="检测方式").pack(anchor="w")

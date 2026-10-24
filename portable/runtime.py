@@ -1,5 +1,6 @@
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 from pathlib import Path
 import subprocess
@@ -46,7 +47,7 @@ class InstanceLock:
 def daemon(settings):
     state_path = settings.path.with_name("portable-state.json")
     settings.path.parent.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(filename=str(settings.path.with_name("portable.log")), level=logging.INFO)
+    logging.basicConfig(handlers=[RotatingFileHandler(settings.path.with_name("portable.log"), maxBytes=1048576, backupCount=2, encoding="utf-8")], level=logging.INFO)
     with InstanceLock(settings.path.with_name("portable.lock")):
         previous = None
         last_data = None

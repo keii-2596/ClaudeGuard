@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 if ($env:OS -ne 'Windows_NT') { throw '此脚本仅适用于 Windows。' }
 $SourceRoot = Split-Path $PSScriptRoot -Parent
 $InstallRoot = Join-Path $env:LOCALAPPDATA 'ClaudeGuard'

@@ -157,7 +157,7 @@ class PortableTests(unittest.TestCase):
     def test_cli_end_to_end(self):
         entry = Path(__file__).resolve().parents[1] / 'portable/main.py'
         for command in [('set', 'ip_check_mode', 'http'), ('add-ip', '203.0.113.10')]:
-            result = subprocess.run([sys.executable, str(entry), '--config', str(self.settings.path), *command], capture_output=True, text=True)
+            result = subprocess.run([sys.executable, str(entry), '--config', str(self.settings.path), *command], capture_output=True, text=True, encoding="utf-8")
             self.assertEqual(result.returncode, 0, result.stderr)
         data = self.settings.load()
         self.assertEqual(data['ip_check_mode'], 'http')

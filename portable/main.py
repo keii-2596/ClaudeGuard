@@ -5,6 +5,12 @@ from pathlib import Path
 import sys
 import psutil
 
+# Redirected Windows consoles default to a legacy code page on many systems.
+if sys.platform == "win32":
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None and hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from portable.config import Settings
 from portable.platforms import autostart, stop_tree
