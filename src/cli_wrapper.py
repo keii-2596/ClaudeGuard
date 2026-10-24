@@ -13,6 +13,7 @@ import time
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "..")))
 
 from src.config import ConfigManager
+from src.proxy_config import cli_environment
 from src.brain import get_verdict
 from src.integrity import discover_real_cli, is_our_wrapper, repair_cli
 from src.network_guard import sync_hosts_file
@@ -63,6 +64,12 @@ def main():
             pass
 
     config = ConfigManager()
+    try:
+        os.environ.update(cli_environment(config.config, os.environ))
+    except ValueError as exc:
+        force_restore_terminal()
+        print(f"[ClaudeGuard] 已阻止启动：{exc}", file=sys.stderr)
+        sys.exit(1)
 
     if not config.protection_enabled:
         run_real_claude(config)
@@ -147,7 +154,7 @@ def run_real_claude(config):
         print("  或用 claudeguard set-cli-path /path/to/real/claude 手动指定路径。", file=sys.stderr)
         sys.exit(1)
 
-    env = os.environ.copy()
+    env = cli_environment(config.config, os.environ)
     if config.block_auto_updates:
         env["DISABLE_AUTO_UPDATE"] = "1"
         env["CLAUDE_DISABLE_AUTO_UPDATE"] = "1"

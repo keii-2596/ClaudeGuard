@@ -16,6 +16,8 @@ DEFAULT_CONFIG = {
     "model_override_enabled": False,
     "default_model": "claude-opus-4-8",
     "check_interval": 3,
+    "http_proxy": "",
+    "cli_http_proxy_enabled": False,
     "blocked_domains": [
         "claude.com",
         "www.claude.com",

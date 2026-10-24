@@ -51,12 +51,12 @@ def enforce(paths):
     return failures
 
 
-def spawn(path, args):
+def spawn(path, args, env=None):
     if not path or not Path(path).is_file():
         raise ValueError("请先设置有效的程序路径")
     if Path(path).suffix.lower() in (".cmd", ".bat", ".ps1"):
         raise ValueError("请指定原生可执行文件")
-    return subprocess.Popen([path, *args], start_new_session=(os.name != "nt"))
+    return subprocess.Popen([path, *args], start_new_session=(os.name != "nt"), env=env)
 
 
 def autostart(python, entry, config_path, enabled, system=None):

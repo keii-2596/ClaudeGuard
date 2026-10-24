@@ -14,6 +14,7 @@ from portable.config import atomic_json
 from portable.platforms import enforce, spawn, stop_tree
 from src.ip_checker import perform_ip_check
 from src import policy
+from src.proxy_config import cli_environment
 from portable.config import default_path
 
 
@@ -113,7 +114,10 @@ def launch(settings, target, args):
     verdict = check(data, settings.path.parent)  # Never trust a cached verdict at launch.
     if verdict["state"] not in ("allowed", "disabled"):
         raise ValueError(f"已阻止启动：{verdict['ip'] or verdict['error'] or '出口未通过检查'}")
-    process = spawn(data[target + "_path"], args)
+    if target == "cli":
+        process = spawn(data[target + "_path"], args, env=cli_environment(data, os.environ))
+    else:
+        process = spawn(data[target + "_path"], args)
     tracked = psutil.Process(process.pid)
     try:
         while process.poll() is None:

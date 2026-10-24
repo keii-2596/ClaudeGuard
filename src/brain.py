@@ -66,7 +66,8 @@ def get_verdict(config, timeout=2.0, allow_fallback=True):
             and st.get("detect_ip_change", False) is False
             and st.get("protection_enabled") == config.protection_enabled
             and st.get("ip_check_mode") == config.ip_check_mode
-            and st.get("allowed_ips") == config.allowed_ips):
+            and st.get("allowed_ips") == config.allowed_ips
+            and (st.get("http_proxy") or "") == (config.config.get("http_proxy") or "")):
         v = st.get("state", "offline")
         if v == "disabled":  # the daemon has its own vocabulary; normalise it
             return "allowed", st.get("ip"), None
@@ -75,7 +76,7 @@ def get_verdict(config, timeout=2.0, allow_fallback=True):
     if not allow_fallback:
         return "offline", None, "后台守护未运行，或检测结果与当前配置不一致"
 
-    ip, is_allowed, err = perform_ip_check(config.allowed_ips, timeout=timeout, mode=config.ip_check_mode)
+    ip, is_allowed, err = perform_ip_check(config.allowed_ips, timeout=timeout, mode=config.ip_check_mode, proxy=config.config.get("http_proxy") or None)
     if ip is None:
         return "offline", None, err
     return ("allowed" if is_allowed else "blocked"), ip, err

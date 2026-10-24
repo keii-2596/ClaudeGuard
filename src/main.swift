@@ -381,6 +381,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             "jump_latched": jumpBlocked,
             "ip_check_mode": verdictIPCheckMode,
             "check_interval": checkInterval,
+            "http_proxy": policyConfig["http_proxy"] as? String ?? "",
             "allowed_ips": verdictAllowedIPs,
             "protection_enabled": stateStr != "disabled",
             "updated_at": Date().timeIntervalSince1970
@@ -508,6 +509,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // HTTP (fallback, in parallel)
         let cfg = URLSessionConfiguration.ephemeral
+        if let address = policyConfig["http_proxy"] as? String, !address.isEmpty,
+           let proxy = URLComponents(string: address), let host = proxy.host, let port = proxy.port {
+            cfg.connectionProxyDictionary = ["HTTPEnable": 1, "HTTPProxy": host, "HTTPPort": port,
+                                             "HTTPSEnable": 1, "HTTPSProxy": host, "HTTPSPort": port]
+        }
         cfg.timeoutIntervalForRequest = deadline
         cfg.timeoutIntervalForResource = deadline
         let session = URLSession(configuration: cfg)
@@ -706,7 +712,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         var json: [String: Any] = [:]
         if let data = try? Data(contentsOf: URL(fileURLWithPath: configPath)),
            let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { json = existing }
-        for key in ["access_mode", "risk_threshold", "risk_cache_ttl", "detect_ip_change", "check_interval"] {
+        for key in ["access_mode", "risk_threshold", "risk_cache_ttl", "detect_ip_change", "check_interval", "http_proxy", "cli_http_proxy_enabled"] {
             if let value = policyConfig[key] { json[key] = value }
         }
         json["allowed_ips"] = allowedIPs
@@ -857,6 +863,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let settingsItem = NSMenuItem(title: "设置", action: nil, keyEquivalent: "")
         let settingsMenu = NSMenu()
+        let cliProxy = NSMenuItem(title: "Claude Code 始终使用 HTTP 代理", action: #selector(onToggleCLIProxy), keyEquivalent: "")
+        cliProxy.target = self
+        cliProxy.state = policyConfig["cli_http_proxy_enabled"] as? Bool == true ? .on : .off
+        settingsMenu.addItem(cliProxy)
+        let proxyAddress = NSMenuItem(title: "HTTP 代理地址…", action: #selector(onCLIProxyAddress), keyEquivalent: "")
+        proxyAddress.target = self
+        settingsMenu.addItem(proxyAddress)
+        settingsMenu.addItem(.separator())
         let interval = NSMenuItem(title: "轮询间隔：\(checkInterval) 秒…", action: #selector(onCheckInterval), keyEquivalent: "")
         interval.target = self
         settingsMenu.addItem(interval)
@@ -986,6 +1000,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         policyConfig[key] = number
         saveConfig()
         recheckAsync()
+    }
+    @discardableResult func editCLIProxyAddress() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "HTTP 代理地址"
+        alert.informativeText = "例如 http://127.0.0.1:7897。用于 HTTP 出口检测及勾选后新启动的 Claude Code，不修改终端的全局代理。"
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 340, height: 24))
+        field.stringValue = policyConfig["http_proxy"] as? String ?? ""
+        alert.accessoryView = field
+        alert.addButton(withTitle: "保存")
+        alert.addButton(withTitle: "取消")
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        let value = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URLComponents(string: value), url.scheme == "http",
+              let host = url.host, !host.isEmpty, let port = url.port, (1...65535).contains(port),
+              url.user == nil, url.password == nil, ["", "/"].contains(url.path), url.query == nil, url.fragment == nil,
+              value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
+            let error = NSAlert()
+            error.messageText = "代理地址无效"
+            error.informativeText = "请填写包含协议和端口的地址，不含账号密码，例如 http://127.0.0.1:7897。"
+            error.runModal()
+            return false
+        }
+        policyConfig["http_proxy"] = value
+        saveConfig()
+        recheckAsync()
+        return true
+    }
+    @objc func onCLIProxyAddress() { editCLIProxyAddress() }
+    @objc func onToggleCLIProxy() {
+        let enabled = policyConfig["cli_http_proxy_enabled"] as? Bool == true
+        if !enabled && (policyConfig["http_proxy"] as? String ?? "").isEmpty {
+            guard editCLIProxyAddress() else { return }
+        }
+        policyConfig["cli_http_proxy_enabled"] = !enabled
+        saveConfig()
+        rebuildMenu()
     }
     @objc func onCheckInterval() {
         setPolicyNumber(key: "check_interval", title: "出口轮询间隔（秒，建议 3 秒）", fallback: 3, min: 1, max: 60)

@@ -132,7 +132,7 @@ class IPModeTests(unittest.TestCase):
                 with patch.object(brain, 'read_daemon_state', return_value=state), patch.object(
                         brain, 'perform_ip_check', return_value=(None, False, 'timeout')) as probe:
                     self.assertEqual(brain.get_verdict(config)[0], 'offline')
-                    probe.assert_called_once_with(config.allowed_ips, timeout=2.0, mode='http')
+                    probe.assert_called_once_with(config.allowed_ips, timeout=2.0, mode='http', proxy=None)
 
     def test_matching_cache_is_used_without_network(self):
         with tempfile.TemporaryDirectory() as d:

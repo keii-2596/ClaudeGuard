@@ -76,6 +76,7 @@ def main():
         print(f"自动更新：{'已禁止' if config.block_auto_updates else '允许'}")
         print(f"检测方式：{mode_label(config.ip_check_mode)}")
         print(f"出口轮询间隔：{config.check_interval:g} 秒")
+        print("命令行 HTTP 代理：" + ("已开启" if config.config.get("cli_http_proxy_enabled", False) else "未开启"))
         if config.model_override_enabled:
             print(f"固定模型：{config.default_model}")
         else:

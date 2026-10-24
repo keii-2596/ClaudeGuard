@@ -11,7 +11,7 @@ DEFAULTS = {
     **policy.DEFAULTS,
     "allowed_ips": [], "ip_check_mode": "both", "protection_enabled": True,
     "check_interval": 3, "cli_path": "", "desktop_path": "",
-    "http_proxy": "",
+    "http_proxy": "", "cli_http_proxy_enabled": False,
 }
 
 
@@ -54,6 +54,8 @@ class Settings:
         for field in ("cli_path", "desktop_path", "http_proxy"):
             if not isinstance(data[field], str):
                 raise ValueError(f"{field} 必须是字符串")
+        from src.proxy_config import validate_proxy
+        validate_proxy(data)
         proxy = data["http_proxy"]
         if proxy and not proxy.startswith(("http://", "https://")):
             raise ValueError("代理地址须以 http:// 或 https:// 开头")

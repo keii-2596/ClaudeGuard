@@ -85,6 +85,8 @@ def show(settings):
                 if path:
                     v.set(path)
             ttk.Button(row, text="浏览…", command=browse).pack(side="right")
+    cli_proxy = tk.BooleanVar(value=data["cli_http_proxy_enabled"])
+    ttk.Checkbutton(advanced, text="Claude Code 始终使用 HTTP 代理（下次启动生效）", variable=cli_proxy).pack(anchor="w", pady=8)
     enabled = tk.BooleanVar(value=data["protection_enabled"])
     ttk.Checkbutton(frame, text="开启防护", variable=enabled).pack(anchor="w", pady=10)
 
@@ -95,6 +97,7 @@ def show(settings):
             current.update({key: float(var.get()) for key, var in policy_numbers.items()})
             current['access_mode'] = next(key for key, label in access_labels.items() if label == access.get())
             current['detect_ip_change'] = jump.get()
+            current['cli_http_proxy_enabled'] = cli_proxy.get()
             current.update({"allowed_ips": [x.strip() for x in ips.get("1.0", "end").splitlines() if x.strip()],
                             "ip_check_mode": next(k for k, v in LABELS.items() if v == mode.get()),
                             "protection_enabled": enabled.get()})

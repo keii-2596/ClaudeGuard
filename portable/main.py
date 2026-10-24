@@ -25,7 +25,7 @@ def main():
     for name in ("gui", "daemon", "start", "stop", "status", "check"):
         sub.add_parser(name)
     edit = sub.add_parser("set", help="修改配置")
-    edit.add_argument("key", choices=("ip_check_mode", "cli_path", "desktop_path", "http_proxy", "check_interval", "protection_enabled", "access_mode", "risk_threshold", "risk_cache_ttl", "detect_ip_change"))
+    edit.add_argument("key", choices=("ip_check_mode", "cli_path", "desktop_path", "http_proxy", "check_interval", "cli_http_proxy_enabled", "protection_enabled", "access_mode", "risk_threshold", "risk_cache_ttl", "detect_ip_change"))
     edit.add_argument("value")
     for name in ("add-ip", "remove-ip"):
         sub.add_parser(name).add_argument("ip")
@@ -82,7 +82,7 @@ def main():
                 value = args.value
                 if args.key in ("check_interval", "risk_threshold", "risk_cache_ttl"):
                     value = float(value)
-                if args.key in ("protection_enabled", "detect_ip_change"):
+                if args.key in ("protection_enabled", "detect_ip_change", "cli_http_proxy_enabled"):
                     if value not in ("true", "false"):
                         raise ValueError("请填写 true 或 false")
                     value = value == "true"
