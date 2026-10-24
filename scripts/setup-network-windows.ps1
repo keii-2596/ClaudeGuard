@@ -33,6 +33,11 @@ foreach ($File in @('windows_wfp.cs','windows_network_helper.ps1')) {
 
 if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
     Stop-ScheduledTask -TaskName $TaskName
+    $Deadline = (Get-Date).AddSeconds(10)
+    while ((Get-ScheduledTask -TaskName $TaskName).State -eq 'Running') {
+        if ((Get-Date) -gt $Deadline) { throw '网络助手未停止，取消规则清理。' }
+        Start-Sleep -Milliseconds 100
+    }
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
 }
 if (Test-Path $Manifest) {
