@@ -44,12 +44,22 @@ def show(settings):
     access = tk.StringVar(value=access_labels[data["access_mode"]])
     ttk.Combobox(frame, textvariable=access, values=list(access_labels.values()), state="readonly").pack(fill="x")
     policy_numbers = {}
-    for key, label in [("risk_threshold", "风险分阈值（超过此值时拦截，0～100）"),
-                       ("risk_cache_ttl", "评分缓存有效期（秒，最长 604800）")]:
-        ttk.Label(frame, text=label).pack(anchor="w", pady=(8, 0))
-        var = tk.StringVar(value=str(data[key]))
-        policy_numbers[key] = var
-        ttk.Entry(frame, textvariable=var).pack(fill="x")
+    ttk.Label(frame, text="风险分阈值（超过此值时拦截，0～100）").pack(anchor="w", pady=(8, 0))
+    policy_numbers["risk_threshold"] = tk.StringVar(value=str(data["risk_threshold"]))
+    ttk.Entry(frame, textvariable=policy_numbers["risk_threshold"]).pack(fill="x")
+    advanced = ttk.Frame(frame)
+    def toggle_advanced():
+        if advanced.winfo_manager():
+            advanced.pack_forget()
+            advanced_button.configure(text="更多设置…")
+        else:
+            advanced.pack(fill="x", after=advanced_button)
+            advanced_button.configure(text="收起更多设置")
+    advanced_button = ttk.Button(frame, text="更多设置…", command=toggle_advanced)
+    advanced_button.pack(anchor="w", pady=8)
+    ttk.Label(advanced, text="评分缓存时间（秒，最长 604800）").pack(anchor="w")
+    policy_numbers["risk_cache_ttl"] = tk.StringVar(value=str(data["risk_cache_ttl"]))
+    ttk.Entry(advanced, textvariable=policy_numbers["risk_cache_ttl"]).pack(fill="x")
     jump = tk.BooleanVar(value=data["detect_ip_change"])
     ttk.Checkbutton(frame, text="检测 IP 跳变，变化后须手动确认才能解除拦截", variable=jump).pack(anchor="w", pady=8)
     ttk.Label(frame, text="风险评分模式会向 proxycheck.io 查询出口 IP，评分在有效期内会缓存在本机。", wraplength=620).pack(anchor="w")
@@ -114,7 +124,7 @@ def show(settings):
         current = settings.load()
         def confirm(observed):
             display = "\n".join(f"{key.upper()}：{ip}" for key, ip in observed.items()) or "未获取出口"
-            if not messagebox.askokcancel("确认当前出口", display + "\n\n确认后仍须通过当前访问规则，才会解除跳变拦截。", parent=root):
+            if not messagebox.askokcancel("信任当前 IP 并解除拦截？", display + "\n\n如果这是你主动切换的线路，可以确认信任。程序会重新检测 IP，通过当前访问规则后，解除跳变拦截，并将当前 IP 设为新的检测基准。", parent=root):
                 return
             def apply():
                 result = policy.check(current, settings.path.parent, acknowledge=True, expected_ips=observed)
@@ -156,7 +166,21 @@ def show(settings):
     row.pack(fill="x", pady=5)
     for title, callback in [("保存", save), ("检测出口", inspect), ("启动守护", start), ("停止守护", stop)]:
         ttk.Button(row, text=title, command=lambda cb=callback: action(cb)).pack(side="left", padx=(0, 6))
-    ttk.Button(frame, text="确认当前出口，解除跳变拦截…", command=acknowledge).pack(anchor="w", pady=5)
+    ack_button = ttk.Button(frame, text="信任当前 IP 并解除拦截…", command=lambda: action(acknowledge))
+    action_row = row
+    def refresh_ack():
+        try:
+            current = settings.load()
+            state = json.loads(settings.path.with_name("admission-state.json").read_text(encoding="utf-8"))
+            visible = current["protection_enabled"] and current["detect_ip_change"] and isinstance(state, dict) and state.get("jump_latched") is True
+        except (OSError, ValueError, TypeError):
+            visible = False
+        if visible:
+            ack_button.pack(anchor="w", pady=5, after=action_row)
+        else:
+            ack_button.pack_forget()
+        root.after(1000, refresh_ack)
+    refresh_ack()
     row = ttk.Frame(frame)
     row.pack(fill="x", pady=5)
     ttk.Button(row, text="开启登录自启动", command=lambda: action(lambda: boot(True))).pack(side="left", padx=(0, 6))

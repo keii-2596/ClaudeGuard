@@ -91,10 +91,15 @@ class PolicyTests(unittest.TestCase):
     def test_whitelisted_jump_latches_and_survives_return_and_restart(self):
         self.data['detect_ip_change'] = True
         self.assertEqual(self.evaluate()['state'], 'allowed')
-        self.assertEqual(self.evaluate({'http': B})['state'], 'blocked')
+        changed = self.evaluate({'http': B})
+        self.assertEqual(changed['state'], 'blocked')
+        self.assertTrue(changed['jump_latched'])
         result = policy.evaluate(self.data, {'http': A}, self.directory)
         self.assertEqual(result['state'], 'blocked')
         self.assertIn('跳变', result['reason'])
+        self.assertTrue(result['jump_latched'])
+        self.data['detect_ip_change'] = False
+        self.assertFalse(self.evaluate()['jump_latched'])
 
     def test_ack_requires_reviewed_ip_and_access_rule(self):
         self.data['detect_ip_change'] = True

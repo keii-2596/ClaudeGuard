@@ -45,6 +45,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var policyReason: String = ""
     var policyScriptPath = NSString(string: "~/.local/share/ClaudeGuard/src/policy_cli.py").expandingTildeInPath
     var riskScores: [String: Any] = [:]
+    var jumpBlocked = false
 
     var usesAdvancedPolicy: Bool {
         let access = policyConfig["access_mode"] == nil ? "whitelist" : (policyConfig["access_mode"] as? String ?? "invalid")
@@ -289,6 +290,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let advancedPolicy = usesAdvancedPolicy
         policyReason = ""
         riskScores = [:]
+        jumpBlocked = false
 
         detectedIPs = [:]
         let newState: GuardState
@@ -315,6 +317,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let outcome = runPolicy(action: "evaluate", request: ["data": checkedPolicy, "ips": results])
                 policyReason = outcome["reason"] as? String ?? "策略检查失败，暂不放行"
                 riskScores = outcome["scores"] as? [String: Any] ?? [:]
+                jumpBlocked = outcome["jump_latched"] as? Bool == true
                 currentIP = checkedMode == "both" ? Self.describeBoth(results) : (results[checkedMode] ?? "No Internet")
                 if outcome["state"] as? String == "allowed" {
                     newState = .allowed(ip: currentIP)
@@ -365,6 +368,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             "detect_ip_change": verdictPolicyConfig["detect_ip_change"] ?? false,
             "reason": policyReason,
             "scores": riskScores,
+            "jump_latched": jumpBlocked,
             "ip_check_mode": verdictIPCheckMode,
             "allowed_ips": verdictAllowedIPs,
             "protection_enabled": stateStr != "disabled",
@@ -822,37 +826,45 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         rules.submenu = rulesMenu
         menu.addItem(rules)
-        for (title, selector) in [("风险分阈值…", #selector(onRiskThreshold)), ("评分缓存有效期…", #selector(onRiskCacheTTL))] {
-            let item = NSMenuItem(title: title, action: selector, keyEquivalent: "")
-            item.target = self
-            menu.addItem(item)
+        if access == "risk" {
+            let threshold = NSMenuItem(title: "风险分阈值…", action: #selector(onRiskThreshold), keyEquivalent: "")
+            threshold.target = self
+            menu.addItem(threshold)
         }
         let jump = policyConfig["detect_ip_change"] as? Bool == true
         let jumpToggle = NSMenuItem(title: jump ? "✓ 检测 IP 跳变" : "检测 IP 跳变", action: #selector(onToggleIPChange), keyEquivalent: "")
         jumpToggle.target = self
         menu.addItem(jumpToggle)
-        if jump {
-            let ack = NSMenuItem(title: "确认当前出口，解除跳变拦截…", action: #selector(onAcknowledgeIPChange), keyEquivalent: "")
+        if jump && jumpBlocked {
+            let ack = NSMenuItem(title: "信任当前 IP 并解除拦截…", action: #selector(onAcknowledgeIPChange), keyEquivalent: "")
             ack.target = self
             menu.addItem(ack)
         }
 
+        let settingsItem = NSMenuItem(title: "设置", action: nil, keyEquivalent: "")
+        let settingsMenu = NSMenu()
+        let cache = NSMenuItem(title: "评分缓存时间…", action: #selector(onRiskCacheTTL), keyEquivalent: "")
+        cache.target = self
+        settingsMenu.addItem(cache)
+        settingsMenu.addItem(.separator())
         let upd = NSMenuItem(title: blockAutoUpdates ? "✓ 已禁止自动更新" : "允许自动更新", action: #selector(onToggleUpdates), keyEquivalent: "")
         upd.target = self
-        menu.addItem(upd)
+        settingsMenu.addItem(upd)
 
-        menu.addItem(.separator())
+        settingsMenu.addItem(.separator())
 
         let modelToggle = NSMenuItem(title: modelOverrideEnabled ? "✓ 固定模型：\(defaultModel)" : "固定模型（未启用）", action: #selector(onToggleModelOverride), keyEquivalent: "")
         modelToggle.target = self
-        menu.addItem(modelToggle)
+        settingsMenu.addItem(modelToggle)
 
         if modelOverrideEnabled {
             let changeModel = NSMenuItem(title: "    更换模型…", action: #selector(onChangeModel), keyEquivalent: "")
             changeModel.target = self
-            menu.addItem(changeModel)
+            settingsMenu.addItem(changeModel)
         }
 
+        settingsItem.submenu = settingsMenu
+        menu.addItem(settingsItem)
         menu.addItem(.separator())
 
         for ip in Set(detectedIPs.values).sorted() where !allowedIPs.contains(ip) {
@@ -940,7 +952,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setPolicyNumber(key: "risk_threshold", title: "超过多少风险分时拦截？", fallback: 50, min: 0, max: 100)
     }
     @objc func onRiskCacheTTL() {
-        setPolicyNumber(key: "risk_cache_ttl", title: "评分缓存有效期（秒）", fallback: 21600, min: 1, max: 604800)
+        setPolicyNumber(key: "risk_cache_ttl", title: "评分缓存时间（秒）", fallback: 21600, min: 1, max: 604800)
     }
     @objc func onToggleIPChange() {
         policyConfig["detect_ip_change"] = !(policyConfig["detect_ip_change"] as? Bool ?? false)
@@ -951,9 +963,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let expected = detectedIPs
         let data = policyConfig
         let alert = NSAlert()
-        alert.messageText = "确认信任当前出口？"
-        alert.informativeText = "\(currentIP)\n\n确认后仍须通过白名单或风险分检查，才会解除跳变拦截。"
-        alert.addButton(withTitle: "确认这些出口")
+        alert.messageText = "信任当前 IP 并解除拦截？"
+        alert.informativeText = "当前出口：\(currentIP)\n\n如果这是你主动切换的线路，可以确认信任。程序会重新检测 IP，通过当前白名单或风险分检查后，解除跳变拦截，并将当前 IP 设为新的检测基准。"
+        alert.addButton(withTitle: "信任并重新检查")
         alert.addButton(withTitle: "取消")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         DispatchQueue.global(qos: .userInitiated).async {

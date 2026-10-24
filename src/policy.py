@@ -145,7 +145,7 @@ def evaluate(data, ips, directory, acknowledge=False, expected_ips=None, now=Non
         modes = ('http', 'stun') if data['ip_check_mode'] == 'both' else (data['ip_check_mode'],)
         ips = {m: str(ipaddress.ip_address(ip)) for m, ip in ips.items() if m in modes}
         display = '; '.join(f'{m.upper()}: {ips.get(m, "未获取")}' for m in modes) if len(modes) > 1 else ips.get(modes[0])
-        result = {'state': 'blocked', 'ip': display, 'detected_ips': ips, 'scores': {}, 'error': None}
+        result = {'state': 'blocked', 'ip': display, 'detected_ips': ips, 'scores': {}, 'error': None, 'jump_latched': False}
         def deny(reason):
             return {**result, 'reason': reason, 'error': reason}
         if acknowledge and (len(ips) != len(modes) or ips != expected_ips):
@@ -160,7 +160,7 @@ def evaluate(data, ips, directory, acknowledge=False, expected_ips=None, now=Non
                 state['jump_details'] = changed
                 atomic_json(path, state)  # persist before doing any network risk lookup
             if data['detect_ip_change'] and state['jump_latched'] and not acknowledge:
-                return {**deny('检测到 IP 跳变，已持续拦截。请确认当前出口后解除'), 'jump_details': state.get('jump_details', {})}
+                return {**deny('检测到 IP 跳变，已持续拦截。请确认是否信任当前 IP'), 'jump_latched': True, 'jump_details': state.get('jump_details', {})}
             if len(ips) != len(modes):
                 return deny('未能确认全部出口 IP，暂不放行')
             if data['access_mode'] == 'whitelist':
