@@ -14,7 +14,7 @@ public sealed class ClaudeGuardWfp : IDisposable {
         public Guid key; public Display display; public uint flags; public IntPtr provider;
         public Blob data; public Guid layer, sublayer; public Value weight;
         public uint count; public IntPtr conditions; public Action action;
-        public ulong context; public IntPtr reserved; public ulong id; public Value effectiveWeight;
+        public ulong context, contextPadding; public IntPtr reserved; public ulong id; public Value effectiveWeight;
     }
     [StructLayout(LayoutKind.Sequential)] struct Sublayer {
         public Guid key; public Display display; public uint flags; public IntPtr provider;
@@ -32,6 +32,22 @@ public sealed class ClaudeGuardWfp : IDisposable {
     [DllImport("fwpuclnt.dll")] static extern uint FwpmTransactionBegin0(IntPtr engine, uint flags);
     [DllImport("fwpuclnt.dll")] static extern uint FwpmTransactionCommit0(IntPtr engine);
     [DllImport("fwpuclnt.dll")] static extern uint FwpmTransactionAbort0(IntPtr engine);
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern IntPtr CreateFile(string name, uint access, uint share, IntPtr security, uint creation, uint flags, IntPtr template);
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern uint GetFinalPathNameByHandle(IntPtr file, StringBuilder path, uint length, uint flags);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+    public static string Canonical(string path) {
+        IntPtr file=CreateFile(path,0,7,IntPtr.Zero,3,0x02000000,IntPtr.Zero);
+        if(file==new IntPtr(-1)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        try {
+            var result=new StringBuilder(32768);
+            uint length=GetFinalPathNameByHandle(file,result,(uint)result.Capacity,0);
+            if(length==0 || length>=result.Capacity) throw new InvalidOperationException("Cannot canonicalize application path");
+            string value=result.ToString();
+            if(value.StartsWith(@"\\?\UNC\")) value=@"\\"+value.Substring(8);
+            else if(value.StartsWith(@"\\?\")) value=value.Substring(4);
+            return value.ToLowerInvariant();
+        } finally { CloseHandle(file); }
+    }
     IntPtr engine;
     Guid sublayer;
     static readonly Guid[] layers = { new Guid("c38d57d1-05a7-4c33-904f-7fbceee60e82"), new Guid("4a72393b-319f-44bc-84c3-ba54dcb3b6b4") };
@@ -40,7 +56,7 @@ public sealed class ClaudeGuardWfp : IDisposable {
     static Guid Key(string text) { using (var hash = SHA256.Create()) { var bytes = hash.ComputeHash(Encoding.UTF8.GetBytes(text)); var key = new byte[16]; Array.Copy(bytes, key, 16); return new Guid(key); } }
     public ClaudeGuardWfp(string installation) {
         if (IntPtr.Size != 8) throw new PlatformNotSupportedException("64-bit PowerShell required");
-        if (Marshal.SizeOf(typeof(Filter)) != 192 || Marshal.SizeOf(typeof(Condition)) != 40) throw new InvalidOperationException("Invalid WFP ABI layout");
+        if (Marshal.SizeOf(typeof(Filter)) != 200 || Marshal.SizeOf(typeof(Condition)) != 40) throw new InvalidOperationException("Invalid WFP ABI layout");
         Check(FwpmEngineOpen0(null, 10, IntPtr.Zero, IntPtr.Zero, out engine));
         sublayer = Key("ClaudeGuard/sublayer/" + installation);
         IntPtr title = Marshal.StringToHGlobalUni("ClaudeGuard " + installation);
@@ -68,7 +84,7 @@ public sealed class ClaudeGuardWfp : IDisposable {
                     Marshal.StructureToPtr(cond,condition,false);
                     title=Marshal.StringToHGlobalUni("ClaudeGuard outbound block");
                     Filter filter=new Filter {key=key, display=new Display {name=title}, flags=1, layer=layer, sublayer=sublayer,
-                        weight=new Value {type=1,value=255}, count=1, conditions=condition, action=new Action {type=0x1001}};
+                        weight=new Value {type=1,value=15}, count=1, conditions=condition, action=new Action {type=0x1001}};
                     ulong id; Check(FwpmFilterAdd0(engine, ref filter, IntPtr.Zero, out id));
                 } finally {
                     if(blob!=IntPtr.Zero) FwpmFreeMemory0(ref blob);
