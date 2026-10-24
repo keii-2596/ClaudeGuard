@@ -139,6 +139,8 @@ def main():
         if input("确认信任这些出口？输入 yes 继续：").strip() != "yes":
             sys.exit(1)
         result = policy.check(data, Path(config.path).parent, acknowledge=True, expected_ips=observed)
+        if result.get('jump_acknowledged'):
+            print('已解除跳变拦截，继续检查访问规则。')
         print(result['reason'])
         sys.exit(0 if result['state'] == 'allowed' else 1)
 

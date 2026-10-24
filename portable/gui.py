@@ -124,11 +124,11 @@ def show(settings):
         current = settings.load()
         def confirm(observed):
             display = "\n".join(f"{key.upper()}：{ip}" for key, ip in observed.items()) or "未获取出口"
-            if not messagebox.askokcancel("信任当前 IP 并解除拦截？", display + "\n\n如果这是你主动切换的线路，可以确认信任。程序会重新检测 IP，通过当前访问规则后，解除跳变拦截，并将当前 IP 设为新的检测基准。", parent=root):
+            if not messagebox.askokcancel("信任当前 IP 并解除拦截？", display + "\n\n如果这是你主动切换的线路，可以确认信任。程序会重新检测 IP，确认地址未变后，解除跳变拦截，并将当前 IP 设为新的检测基准。白名单和风险评分仍会单独检查，不通过时继续拦截。", parent=root):
                 return
             def apply():
                 result = policy.check(current, settings.path.parent, acknowledge=True, expected_ips=observed)
-                root.after(0, lambda: status.set(result['reason']))
+                root.after(0, lambda: status.set(('已解除跳变拦截。\n' if result.get('jump_acknowledged') else '') + result['reason']))
             threading.Thread(target=apply, daemon=True).start()
         def probe():
             try:

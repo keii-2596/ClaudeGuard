@@ -64,6 +64,8 @@ def main():
                 print("已取消。")
                 return 1
             result = policy.check(data, settings.path.parent, acknowledge=True, expected_ips=observed)
+            if result.get('jump_acknowledged'):
+                print('已解除跳变拦截，继续检查访问规则。')
             print(result['reason'])
             return 0 if result['state'] == 'allowed' else 1
         elif args.command == "run":

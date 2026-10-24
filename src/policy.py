@@ -136,7 +136,7 @@ def evaluate(data, ips, directory, acknowledge=False, expected_ips=None, now=Non
     """One cross-process transaction: jump latch, cached scores, then admission.
 
     Acknowledgement can reset a jump latch only after fresh, complete detection
-    matches the explicitly reviewed exits AND the selected access rule passes.
+    matches the explicitly reviewed exits. Access rules still decide admission separately.
     """
     try:
         data = settings(data)
@@ -149,7 +149,9 @@ def evaluate(data, ips, directory, acknowledge=False, expected_ips=None, now=Non
         def deny(reason):
             return {**result, 'reason': reason, 'error': reason}
         if acknowledge and (len(ips) != len(modes) or ips != expected_ips):
-            return deny('出口与刚才确认的地址不一致，请重新检测后再确认')
+            def describe(values):
+                return '，'.join(f'{m.upper()}: {values.get(m, "未获取")}' for m in modes)
+            return deny(f'出口与刚才确认的地址不一致，未解除跳变拦截。确认的地址：{describe(expected_ips or {})}。重新检测：{describe(ips)}。请重新检测后再确认')
         path = Path(directory) / 'admission-state.json'
         with locked(path.with_suffix('.lock')):
             state = _load(path)
@@ -163,6 +165,12 @@ def evaluate(data, ips, directory, acknowledge=False, expected_ips=None, now=Non
                 return {**deny('检测到 IP 跳变，已持续拦截。请确认是否信任当前 IP'), 'jump_latched': True, 'jump_details': state.get('jump_details', {})}
             if len(ips) != len(modes):
                 return deny('未能确认全部出口 IP，暂不放行')
+            if acknowledge:
+                state['jump_latched'] = False
+                state.pop('jump_details', None)
+                state['baseline'].update(ips)
+                atomic_json(path, state)
+                result['jump_acknowledged'] = True
             if data['access_mode'] == 'whitelist':
                 if any(not is_ip_allowed(ip, data.get('allowed_ips', [])) for ip in ips.values()):
                     return deny('出口未通过 IP 白名单检查')
@@ -198,11 +206,7 @@ def evaluate(data, ips, directory, acknowledge=False, expected_ips=None, now=Non
                     result['scores'][ip] = {'score': score, 'cached': bool(valid), 'fetched_at': fetched, 'provider': 'proxycheck.io'}
                     if score > data['risk_threshold']:
                         return deny(f'{ip} 的风险分为 {score:g}，超过阈值 {data["risk_threshold"]:g}')
-            if acknowledge:
-                state['jump_latched'] = False
-                state.pop('jump_details', None)
-                state['baseline'] = dict(ips)
-            elif data['detect_ip_change']:
+            if data['detect_ip_change']:
                 # Establish unseen transport baselines only after the whole rule passes.
                 state['baseline'].update(ips)
             atomic_json(path, state)

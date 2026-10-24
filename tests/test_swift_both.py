@@ -52,6 +52,12 @@ let changed = native.runPolicy(action: "evaluate", request: ["data": config, "ip
 precondition(changed["state"] as? String == "blocked", "Native policy bridge allowed a whitelisted jump")
 let returned = native.runPolicy(action: "evaluate", request: ["data": config, "ips": ["http": good]])
 precondition(returned["state"] as? String == "blocked", "Jump latch did not survive returning to baseline")
+let ackConfig = config.merging(["allowed_ips": [good]]) { _, new in new }
+let ack = native.runPolicy(action: "ack-evaluate", request: ["data": ackConfig, "ips": ["http": bad], "expected_ips": ["http": bad]])
+precondition(ack["state"] as? String == "blocked", "Acknowledgement bypassed whitelist")
+precondition(ack["jump_acknowledged"] as? Bool == true, "Acknowledgement did not clear jump separately")
+let ruleBlocked = native.runPolicy(action: "evaluate", request: ["data": ackConfig, "ips": ["http": bad]])
+precondition(ruleBlocked["jump_latched"] as? Bool == false, "Whitelist denial incorrectly kept jump latch")
 print("Swift both verdict matrix passed")
 '''
         with tempfile.TemporaryDirectory() as d:

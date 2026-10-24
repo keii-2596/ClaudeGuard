@@ -297,21 +297,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if !protectionEnabled {
             newState = .disabled
         } else {
-            let modes = checkedMode == "both" ? ["http", "stun"] : [checkedMode]
-            let group = DispatchGroup()
-            let resultsLock = NSLock()
-            var results: [String: String] = [:]
-            for mode in modes {
-                group.enter()
-                DispatchQueue.global(qos: .utility).async {
-                    let ip = self.resolvePublicIP(deadline: 2.0, mode: mode)
-                    resultsLock.lock()
-                    if let ip = ip { results[mode] = ip }
-                    resultsLock.unlock()
-                    group.leave()
-                }
-            }
-            group.wait()
+            let results = detectExits(mode: checkedMode)
             detectedIPs = results
             if advancedPolicy {
                 let outcome = runPolicy(action: "evaluate", request: ["data": checkedPolicy, "ips": results])
@@ -453,6 +439,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Resolve one transport. Both-mode callers wait for two independent results.
+    func detectExits(mode: String) -> [String: String] {
+        let modes = mode == "both" ? ["http", "stun"] : [mode]
+        let group = DispatchGroup()
+        let lock = NSLock()
+        var results: [String: String] = [:]
+        for transport in modes {
+            group.enter()
+            DispatchQueue.global(qos: .utility).async {
+                let ip = self.resolvePublicIP(deadline: 2.0, mode: transport)
+                lock.lock()
+                if let ip = ip { results[transport] = ip }
+                lock.unlock()
+                group.leave()
+            }
+        }
+        group.wait()
+        return results
+    }
+
     func resolvePublicIP(deadline: TimeInterval = 2.0, mode selectedMode: String? = nil) -> String? {
         let mode = selectedMode ?? ipCheckMode
         guard ["http", "stun"].contains(mode) else { return nil }
@@ -962,21 +967,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func onAcknowledgeIPChange() {
         let expected = detectedIPs
         let data = policyConfig
+        let mode = ipCheckMode
         let alert = NSAlert()
-        alert.messageText = "信任当前 IP 并解除拦截？"
-        alert.informativeText = "当前出口：\(currentIP)\n\n如果这是你主动切换的线路，可以确认信任。程序会重新检测 IP，通过当前白名单或风险分检查后，解除跳变拦截，并将当前 IP 设为新的检测基准。"
+        alert.messageText = "信任当前 IP 并解除跳变拦截？"
+        alert.informativeText = "当前出口：\(currentIP)\n\n如果这是你主动切换的线路，可以确认信任。程序会重新检测 IP，确认地址未变后，解除跳变拦截，并将当前 IP 设为新的检测基准。白名单和风险评分仍会单独检查，不通过时继续拦截。"
         alert.addButton(withTitle: "信任并重新检查")
         alert.addButton(withTitle: "取消")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = self.runPolicy(action: "ack", request: ["data": data, "expected_ips": expected])
+            let freshIPs = self.detectExits(mode: mode)
+            let result = self.runPolicy(action: "ack-evaluate", request: ["data": data, "ips": freshIPs, "expected_ips": expected])
+            self.recheck()
             DispatchQueue.main.async {
                 let notice = NSAlert()
-                notice.messageText = result["state"] as? String == "allowed" ? "已确认当前出口" : "未解除拦截"
+                let acknowledged = result["jump_acknowledged"] as? Bool == true
+                notice.messageText = acknowledged ? (result["state"] as? String == "allowed" ? "已解除跳变拦截，允许使用" : "已解除跳变拦截，访问检查未通过") : "未解除跳变拦截"
                 notice.informativeText = result["reason"] as? String ?? "策略检查失败"
                 notice.addButton(withTitle: "知道了")
                 notice.runModal()
-                self.recheckAsync()
             }
         }
     }

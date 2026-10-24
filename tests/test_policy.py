@@ -101,17 +101,50 @@ class PolicyTests(unittest.TestCase):
         self.data['detect_ip_change'] = False
         self.assertFalse(self.evaluate()['jump_latched'])
 
-    def test_ack_requires_reviewed_ip_and_access_rule(self):
+    def test_ack_clears_jump_but_whitelist_still_blocks(self):
         self.data['detect_ip_change'] = True
         self.evaluate()
         self.evaluate({'http': B})
         self.assertEqual(self.evaluate({'http': B}, acknowledge=True, expected_ips={'http': A})['state'], 'blocked')
         self.data['allowed_ips'] = [A]
-        self.assertEqual(self.evaluate({'http': B}, acknowledge=True, expected_ips={'http': B})['state'], 'blocked')
+        result = self.evaluate({'http': B}, acknowledge=True, expected_ips={'http': B})
+        self.assertEqual(result['state'], 'blocked')
+        self.assertTrue(result['jump_acknowledged'])
+        repeated = self.evaluate({'http': B})
+        self.assertFalse(repeated['jump_latched'])
+        self.assertIn('白名单', repeated['reason'])
         self.data['allowed_ips'] = [A, B]
         self.assertEqual(self.evaluate({'http': B}, acknowledge=True, expected_ips={'http': B})['state'], 'allowed')
         self.assertEqual(self.evaluate({'http': B})['state'], 'allowed')
         self.assertEqual(self.evaluate({'http': A})['state'], 'blocked')
+
+    def test_ack_clears_jump_even_when_score_high_or_unavailable(self):
+        for score in (66, None):
+            with self.subTest(score=score), tempfile.TemporaryDirectory() as directory:
+                data = {**self.data, 'detect_ip_change': True, 'access_mode': 'risk', 'risk_threshold': 10}
+                def evaluate(ip, **kwargs):
+                    return policy.evaluate(data, {'http': ip}, directory, **kwargs)
+                evaluate(A, score_lookup=lambda ip: 0)
+                self.assertTrue(evaluate(B)['jump_latched'])
+                ack = evaluate(B, acknowledge=True, expected_ips={'http': B}, score_lookup=lambda ip: score)
+                self.assertTrue(ack['jump_acknowledged'])
+                self.assertFalse(ack['jump_latched'])
+                self.assertEqual(ack['state'], 'blocked')
+                repeated = evaluate(B, score_lookup=lambda ip: score)
+                self.assertEqual(repeated['state'], 'blocked')
+                self.assertFalse(repeated['jump_latched'])
+                self.assertNotIn('跳变', repeated['reason'])
+                self.assertTrue(evaluate(A)['jump_latched'])
+
+    def test_ack_mismatch_keeps_latch_and_reports_both_addresses(self):
+        self.data['detect_ip_change'] = True
+        self.evaluate()
+        self.evaluate({'http': B})
+        result = self.evaluate({'http': A}, acknowledge=True, expected_ips={'http': B})
+        self.assertIn(A, result['reason'])
+        self.assertIn(B, result['reason'])
+        self.assertNotIn('jump_acknowledged', result)
+        self.assertTrue(self.evaluate({'http': B})['jump_latched'])
 
     def test_score_failure_does_not_seed_jump_baseline(self):
         self.data.update(access_mode='risk', detect_ip_change=True)
