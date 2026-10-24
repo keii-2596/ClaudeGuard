@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import sys
 from unittest.mock import patch, Mock
 from concurrent.futures import ThreadPoolExecutor
 
@@ -169,6 +170,40 @@ class PolicyTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as error:
                 policy.fetch_score(A)
             self.assertNotIn('private-value', str(error.exception))
+
+    def test_advanced_policy_cannot_reuse_old_daemon_allow(self):
+        from src.config import ConfigManager
+        from src import brain
+        config = ConfigManager(str(self.directory / 'config.json'))
+        config.config.update(access_mode='risk', allowed_ips=[])
+        with patch.object(brain, 'read_daemon_state', return_value={'state': 'allowed'}), patch.object(
+                policy, 'check', return_value={'state': 'blocked', 'ip': A, 'error': 'high score'}) as check:
+            self.assertEqual(brain.get_verdict(config)[0], 'blocked')
+            check.assert_called_once()
+
+    def test_whitelist_mode_cannot_reuse_risk_mode_daemon_allow(self):
+        from src.config import ConfigManager
+        from src import brain
+        config = ConfigManager(str(self.directory / 'config.json'))
+        config.allowed_ips = [B]
+        state = {'state': 'allowed', 'access_mode': 'risk', 'ip': A,
+                 'protection_enabled': True, 'ip_check_mode': config.ip_check_mode, 'allowed_ips': [B]}
+        with patch.object(brain, 'read_daemon_state', return_value=state), patch.object(
+                brain, 'perform_ip_check', return_value=(A, False, None)):
+            self.assertEqual(brain.get_verdict(config)[0], 'blocked')
+
+    @unittest.skipUnless(sys.platform == "darwin", "macOS-specific CLI wrapper")
+    def test_risk_mode_empty_whitelist_can_launch_cli(self):
+        from src import cli_wrapper
+        from src.config import ConfigManager
+        config = ConfigManager(str(self.directory / 'config.json'))
+        config.config.update(access_mode='risk', allowed_ips=[])
+        with patch.object(cli_wrapper, 'ConfigManager', return_value=config), patch.object(
+                cli_wrapper, 'get_verdict', return_value=('allowed', A, None)), patch.object(
+                cli_wrapper, 'repair_cli'), patch.object(cli_wrapper, 'sync_hosts_file'), patch.object(
+                cli_wrapper, 'run_real_claude') as launch, patch.object(cli_wrapper.signal, 'signal'):
+            cli_wrapper.main()
+            launch.assert_called_once_with(config)
 
     def test_mac_json_bridge(self):
         import subprocess, sys

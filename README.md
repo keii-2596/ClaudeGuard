@@ -40,6 +40,10 @@ ClaudeGuard solves that: every launch and every running session is checked again
 
 基于 [ivblz/ClaudeGuard](https://github.com/ivblz/ClaudeGuard) 的本 fork 增加 `ip_check_mode` 配置，可选择 `both`、`http` 或 `stun`。`both` 要求 HTTP 和 STUN 两个出口均在白名单，判定不再取决于返回先后，旧配置 `auto` 自动迁移为 `both`。使用 HTTP 代理且 UDP 走直连时，选择 `http`，避免 STUN 与 HTTP 返回不同出口造成误拦截。菜单栏的 **出口检测** 子菜单和 `claudeguard set-ip-check-mode http` 均可切换。完整行为与验证方式见 [出口检测配置](docs/ip-check-mode.md)。
 
+## Admission policies
+
+Choose an IP allowlist or a cached proxycheck.io risk-score threshold. Optional persistent IP-change blocking requires manual acknowledgement even when the new exit passes the access rule. See [policy settings and behavior](docs/access-policy.md).
+
 ## Windows and Linux
 
 A Python port provides a Chinese settings window, guarded launches, process monitoring, and per-user login startup. It does not yet include system-wide firewall enforcement. See [Windows/Linux installation and scope](docs/windows-linux.md).

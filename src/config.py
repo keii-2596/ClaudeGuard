@@ -1,7 +1,8 @@
 import json
 import os
 import sys
-from src.policy import DEFAULTS as POLICY_DEFAULTS
+import copy
+from src.policy import DEFAULTS as POLICY_DEFAULTS, atomic_json
 
 CONFIG_DIR = os.path.expanduser("~/.config/claudeguard")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
@@ -49,8 +50,8 @@ class ConfigManager:
     def load_config(self):
         if not os.path.exists(self.path):
             self.ensure_dir()
-            self.save_config(DEFAULT_CONFIG)
-            return DEFAULT_CONFIG.copy()
+            self.save_config(copy.deepcopy(DEFAULT_CONFIG))
+            return copy.deepcopy(DEFAULT_CONFIG)
         try:
             with open(self.path, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -61,14 +62,13 @@ class ConfigManager:
                 return data
         except Exception as e:
             print(f"[ClaudeGuard] 配置读取失败，将使用默认设置：{e}")
-            return DEFAULT_CONFIG.copy()
+            return copy.deepcopy(DEFAULT_CONFIG)
 
     def save_config(self, data=None):
         if data is not None:
             self.config = data
         self.ensure_dir()
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(self.config, f, indent=2, ensure_ascii=False)
+        atomic_json(self.path, self.config)
 
     def ensure_dir(self):
         os.makedirs(os.path.dirname(self.path), exist_ok=True)

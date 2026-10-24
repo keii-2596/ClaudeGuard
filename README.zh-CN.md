@@ -6,6 +6,10 @@ ClaudeGuard 是一个运行在 macOS 菜单栏的 Claude 防护工具。它检�
 
 [English](README.md) | [Русский](README.ru.md)
 
+## 访问规则与 IP 跳变
+
+支持固定 IP 白名单或风险分阈值两种规则。风险分采用与 ipcheck 相同的 proxycheck.io 来源，并按 IP 缓存在本机。还可以开启 IP 跳变检测，变化后即使新出口在白名单中，也会持续拦截，直到用户确认。详细设置见[白名单、风险评分与 IP 跳变](docs/access-policy.md)。
+
 ## Windows 与 Linux
 
 新增 Windows/Linux 版本，提供中文设置窗口、命令行启动检查、进程监控和登录自启动。与下文 macOS 版相比，暂不包含系统级网络拦截。安装与配置见 [Windows 与 Linux 版本](docs/windows-linux.md)。

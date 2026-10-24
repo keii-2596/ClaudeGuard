@@ -653,7 +653,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func loadConfig() {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: configPath)),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            policyConfig = ["access_mode": "invalid"]
+            protectionEnabled = true
+            return
+        }
         if let ips = json["allowed_ips"] as? [String] { allowedIPs = ips }
         policyConfig = json
         let storedMode = json["ip_check_mode"] == nil ? "both" : ((json["ip_check_mode"] as? String) ?? "invalid")
@@ -697,8 +701,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         switch state {
         case .offline:  return "⚪ 暂时无法确认出口 IP"
         case .disabled: return "🟡 防护已关闭"
-        case .allowed:  return "🟢 出口已通过白名单检查"
-        case .blocked:  return "🔴 出口未通过白名单检查，已拦截"
+        case .allowed:  return "🟢 出口已通过访问检查"
+        case .blocked:  return "🔴 出口未通过访问检查，已拦截"
         }
     }
 
