@@ -14,34 +14,43 @@ from src.integrity import cli_hook_status, repair, repair_cli
 from src.network_guard import sync_hosts_file
 from src.update_guard import apply_auto_update_lock
 
+def mode_label(mode):
+    return {"both": "HTTP 和 STUN 都检查（both）", "http": "只检查 HTTP（http）", "stun": "只检查 STUN（stun）"}.get(mode, f"配置有误（{mode}）")
+
 def print_help():
     help_text = """
-ClaudeGuard CLI - VPN Whitelist & Auto-Update Control for Claude
+ClaudeGuard：按出口 IP 白名单保护 Claude
 
-Usage:
-  claudeguard <command> [options]
+用法：
+  claudeguard <命令> [参数]
 
-Commands:
-  status               Display current status, active IP, and whitelist
-  set-ip-check-mode <both|http|stun>  Select public-IP detection transport
-  check                Run instant pre-flight IP check (Exit code 0=Allowed, 1=Blocked)
-  add-ip <ip>          Add an IP or CIDR range to whitelist
-  remove-ip <ip>       Remove an IP from whitelist
-  list-ips             Show all whitelisted IPs
-  enable-protection    Enable active network & pre-flight protection
-  disable-protection   Disable protection (Traffic unblocked)
-  block-updates        Enable auto-update locking (Desktop & CLI)
-  allow-updates        Disable auto-update locking
-  set-model <model>    Set the default model (e.g. claude-opus-4-8)
-  enable-model         Enable model override for every claude session
-  disable-model        Disable model override
-  launch-desktop       Launch Claude Desktop with pre-flight IP verification
-  start                Start ClaudeGuard Menu Bar App
-  stop                 Stop ClaudeGuard Menu Bar App
-  doctor               Check every hook is still attached, and re-attach it
-  install-cli-wrapper  Install 'claude' CLI wrapper interceptor into PATH
-  set-cli-path <path>  Set the real Claude CLI binary path ClaudeGuard launches
-  uninstall            Uninstall ClaudeGuard LaunchAgent and wrappers
+查看与检测：
+  status               查看防护状态、检测方式、当前出口和白名单
+  check                检查是否允许启动，退出码 0 表示允许，1 表示拦截
+  doctor               检查防护是否正常，并修复命令行启动入口
+
+出口与白名单：
+  set-ip-check-mode <both|http|stun>  选择检测方式
+                       both：HTTP 和 STUN 都须通过，http/stun：只检查对应协议
+  add-ip <ip>          将 IP 或 CIDR 网段加入白名单
+  remove-ip <ip>       从白名单移除 IP 或网段
+  list-ips             查看白名单
+  enable-protection    开启防护
+  disable-protection   关闭防护，解除 Claude 访问限制
+
+更新与模型：
+  block-updates        禁止 Claude 自动更新
+  allow-updates        允许 Claude 自动更新
+  set-model <model>    设置启动时固定使用的模型
+  enable-model         启用固定模型
+  disable-model        取消固定模型，使用 Claude 自身的设置
+
+启动与管理：
+  launch-desktop       检查出口后启动 Claude 桌面端
+  start                启动 ClaudeGuard 菜单栏守护
+  stop                 停止菜单栏守护，已有网络限制不会自动解除
+  install-cli-wrapper  为 claude 命令安装启动检查
+  set-cli-path <path>  指定原始 Claude Code 程序的路径
 """
     print(help_text.strip())
 
@@ -54,42 +63,42 @@ def main():
     config = ConfigManager()
 
     if cmd == "status":
-        print("=== ClaudeGuard Status ===")
-        print(f"Protection Enabled : {config.protection_enabled}")
-        print(f"Block Auto-Updates : {config.block_auto_updates}")
-        print(f"IP Check Mode      : {config.ip_check_mode}")
+        print("=== ClaudeGuard 状态 ===")
+        print(f"防护状态：{'已开启' if config.protection_enabled else '已关闭'}")
+        print(f"自动更新：{'已禁止' if config.block_auto_updates else '允许'}")
+        print(f"检测方式：{mode_label(config.ip_check_mode)}")
         if config.model_override_enabled:
-            print(f"Default Model      : {config.default_model}")
+            print(f"固定模型：{config.default_model}")
         else:
-            print(f"Default Model      : off")
-        print(f"Whitelisted IPs    : {', '.join(config.allowed_ips) if config.allowed_ips else 'NONE (Access Blocked)'}")
+            print(f"固定模型：未启用")
+        print(f"IP 白名单： {', '.join(config.allowed_ips) if config.allowed_ips else '尚未设置，将阻止启动'}")
 
         # Same verdict the wrapper and launcher enforce; show its source.
         up = daemon_is_up()
-        print(f"Decision Source    : {'🧠 Daemon (live state.json)' if up else '🔌 Local check (daemon down)'}")
-        print("\nPerforming IP check..." if not up else "")
+        print(f"判定来源： {'🧠 后台守护' if up else '🔌 本次检测（后台守护未运行）'}")
+        print("\n正在检测出口 IP…" if not up else "")
         verdict, ip, err = get_verdict(config, timeout=2.0)
         # get_verdict returns ip=None when protection is off; show the real IP.
         if ip is None:
             ip = resolve_display_ip(config, timeout=2.0)
-        print(f"Current Public IP  : {ip or 'OFFLINE/UNKNOWN'}")
+        print(f"当前出口： {ip or '未获取'}")
         if not config.protection_enabled:
-            print("Access Status      : 🟡 DISABLED (protection off)")
+            print("访问状态：🟡 防护已关闭")
         elif verdict == "allowed":
-            print("Access Status      : 🟢 ALLOWED (IP matches Whitelist)")
+            print("访问状态：🟢 已通过白名单检查，允许访问")
         elif verdict == "offline":
-            print("Access Status      : ⚪ OFFLINE (IP can't be verified)")
+            print("访问状态：⚪ 暂时无法确认出口 IP")
         else:
-            print("Access Status      : 🔴 BLOCKED (IP not in Whitelist)")
+            print("访问状态：🔴 出口未通过白名单检查，已拦截")
         if err:
-            print(f"Error Details      : {err}")
+            print(f"原因： {err}")
 
     elif cmd == "set-ip-check-mode":
         if len(sys.argv) != 3 or sys.argv[2] not in ("both", "http", "stun"):
-            print("Usage: claudeguard set-ip-check-mode <both|http|stun>")
+            print("用法：claudeguard set-ip-check-mode <both|http|stun>")
             sys.exit(1)
         config.ip_check_mode = sys.argv[2]
-        print(f"IP check mode: {config.ip_check_mode}. Daemon applies it on the next check.")
+        print(f"检测方式已设为{mode_label(config.ip_check_mode)}，后台守护将在下一轮检测时采用新设置。")
 
     elif cmd == "check":
         if not config.protection_enabled:
@@ -99,61 +108,61 @@ def main():
 
     elif cmd in ("add-ip", "add"):
         if len(sys.argv) < 3:
-            print("Error: Specify IP to add. Example: claudeguard add-ip 1.2.3.4")
+            print("请输入要加入白名单的 IP，例如： claudeguard add-ip 1.2.3.4")
             sys.exit(1)
         ip = sys.argv[2]
         config.add_ip(ip)
-        print(f"✅ Added '{ip}' to allowed whitelist.")
+        print(f"✅ 已将 {ip} 加入白名单。")
 
     elif cmd in ("remove-ip", "rm-ip", "remove"):
         if len(sys.argv) < 3:
-            print("Error: Specify IP to remove. Example: claudeguard remove-ip 1.2.3.4")
+            print("请输入要移除的 IP，例如： claudeguard remove-ip 1.2.3.4")
             sys.exit(1)
         ip = sys.argv[2]
         config.remove_ip(ip)
-        print(f"✅ Removed '{ip}' from allowed whitelist.")
+        print(f"✅ 已将 {ip} 从白名单移除。")
 
     elif cmd in ("list-ips", "ips"):
-        print("Whitelisted IPs:")
+        print("IP 白名单：")
         for ip in config.allowed_ips:
             print(f" - {ip}")
 
     elif cmd == "enable-protection":
         config.protection_enabled = True
-        print("✅ Protection ENABLED.")
+        print("✅ 防护已开启。")
 
     elif cmd == "disable-protection":
         config.protection_enabled = False
         sync_hosts_file(block_claude_domains=False, block_update_domains=config.block_auto_updates, config=config)
-        print("🟡 Protection DISABLED.")
+        print("🟡 防护已关闭。")
 
     elif cmd == "block-updates":
         config.block_auto_updates = True
         apply_auto_update_lock(True)
-        print("✅ Auto-updates BLOCKED.")
+        print("✅ 已禁止 Claude 自动更新。")
 
     elif cmd == "allow-updates":
         config.block_auto_updates = False
         apply_auto_update_lock(False)
-        print("🟢 Auto-updates ALLOWED.")
+        print("🟢 已允许 Claude 自动更新。")
 
     elif cmd == "set-model":
         if len(sys.argv) < 3:
-            print("Error: Specify model ID. Example: claudeguard set-model claude-opus-4-8")
+            print("请输入模型名称，例如： claudeguard set-model claude-opus-4-8")
             sys.exit(1)
         model = sys.argv[2].strip()
         config.default_model = model
         if not config.model_override_enabled:
             config.model_override_enabled = True
-        print(f"✅ Default model set to '{model}' (override enabled).")
+        print(f"✅ 启动时将固定使用 {model}。")
 
     elif cmd == "enable-model":
         config.model_override_enabled = True
-        print(f"✅ Model override ENABLED. Model: {config.default_model}")
+        print(f"✅ 已启用固定模型：{config.default_model}。")
 
     elif cmd == "disable-model":
         config.model_override_enabled = False
-        print("🟡 Model override DISABLED.")
+        print("🟡 已取消固定模型，之后使用 Claude 自身的设置。")
 
     elif cmd == "launch-desktop":
         launcher = os.path.join(PROJECT_DIR, "src", "app_launcher.py")
@@ -165,13 +174,13 @@ def main():
         subprocess.run(["launchctl", "load", plist], capture_output=True)
         if not os.system("pgrep -f ClaudeGuardMenuBar >/dev/null") == 0:
             subprocess.Popen([app_path])
-        print("🚀 ClaudeGuard Menu Bar App launched.")
+        print("🚀 ClaudeGuard 菜单栏守护已启动。")
 
     elif cmd in ("stop", "quit", "close"):
         plist = os.path.expanduser("~/Library/LaunchAgents/com.claudeguard.daemon.plist")
         subprocess.run(["launchctl", "unload", plist], capture_output=True)
         subprocess.run(["pkill", "-f", "ClaudeGuardMenuBar"], check=False)
-        print("🛑 ClaudeGuard Menu Bar App stopped.")
+        print("🛑 菜单栏守护已停止，已有网络限制不会自动解除。")
 
     elif cmd in ("doctor", "repair"):
         doctor(config)
@@ -183,29 +192,29 @@ def main():
         for note in report["notes"]:
             print(f"⚠️  {note}")
         if not report["changed"] and not report["notes"]:
-            print("✅ 'claude' interceptor already installed and current.")
+            print("✅ claude 命令的启动检查已就绪。")
 
     elif cmd == "set-cli-path":
         if len(sys.argv) < 3:
-            print("Error: Specify the real claude binary path. Example: claudeguard set-cli-path /opt/homebrew/bin/claude")
+            print("请输入原始 Claude Code 程序的路径，例如： claudeguard set-cli-path /opt/homebrew/bin/claude")
             sys.exit(1)
         path = os.path.realpath(sys.argv[2])
         if not os.path.isfile(path):
-            print(f"Error: '{path}' does not exist or is not a file.")
+            print(f"路径不存在或不是文件：{path}")
             sys.exit(1)
         config.config["real_claude_cli_path"] = path
         config.save_config()
-        print(f"✅ Real Claude CLI path set to '{path}'.")
+        print(f"✅ 原始 Claude Code 路径已设为：{path}")
 
     else:
-        print(f"Unknown command: {cmd}")
+        print(f"无法识别命令：{cmd}")
         print_help()
         sys.exit(1)
 
 def doctor(config):
     """Report on every hook ClaudeGuard owns, then re-attach whatever came loose.
-    The command to run after Claude Code or Claude Desktop was reinstalled."""
-    print("=== ClaudeGuard Doctor ===\n")
+    The command to run after Claude Code or Claude 桌面端 was reinstalled."""
+    print("=== ClaudeGuard 检查结果 ===\n")
 
     report = repair(config)
 
@@ -214,36 +223,36 @@ def doctor(config):
     if hooks:
         for hook in hooks:
             mark = "🟢" if hook["guarded"] else "🔴"
-            where = "" if hook["on_path"] else "  (not on your PATH)"
-            what = "guarded by ClaudeGuard" if hook["guarded"] else "REAL binary — UNGUARDED"
+            where = "" if hook["on_path"] else "  （不在 PATH 中）"
+            what = "已接入 ClaudeGuard 启动检查" if hook["guarded"] else "直接启动原程序，未接入检查"
             print(f"  {mark} {hook['path']} → {what}{where}")
     else:
-        print("  ⚪ no 'claude' command found in any known bin directory")
-    print(f"  Hands off to      : {report['real_cli'] or 'NOT FOUND'}")
-    print(f"  Verdict           : {'🟢 intercepted' if intercepted else '🔴 NOT intercepted'}")
+        print("  ⚪ 未在常见安装位置找到 claude 命令")
+    print(f"  原始程序： {report['real_cli'] or '未找到'}")
+    print(f"  启动检查： {'🟢 已接入' if intercepted else '🔴 未接入'}")
 
-    print("\nClaude Desktop")
+    print("\nClaude 桌面端")
     if report["desktop_app"]:
-        print(f"  🟢 {report['desktop_app']} (guarded by the menu bar daemon)")
+        print(f"  🟢 {report['desktop_app']}（由菜单栏守护保护）")
     else:
-        print("  ⚪ not installed")
+        print("  ⚪ 未安装")
 
-    print("\nDaemon")
-    print(f"  {'🟢 running' if daemon_is_up() else '🔴 NOT running — run: claudeguard start'}")
+    print("\n后台守护")
+    print(f"  {'🟢 正在运行' if daemon_is_up() else '🔴 未运行，请执行 claudeguard start'}")
 
-    print("\nWebsite blocking")
-    print(f"  {'🟢 /etc/hosts writable by the root helper' if os.path.exists('/Library/LaunchDaemons/com.claudeguard.helper.plist') else '🔴 root helper missing — re-run install.sh'}")
+    print("\n网络拦截组件")
+    print(f"  {'🟢 系统网络助手已安装' if os.path.exists('/Library/LaunchDaemons/com.claudeguard.helper.plist') else '🔴 缺少系统网络助手，请重新运行 install.sh'}")
 
     if report["changed"]:
-        print("\nRepaired:")
+        print("\n已修复：")
         for change in report["changed"]:
             print(f"  ✅ {change}")
     if report["notes"]:
-        print("\nNotes:")
+        print("\n需要注意：")
         for note in report["notes"]:
             print(f"  ⚠️  {note}")
     if not report["changed"]:
-        print("\n✅ Nothing to repair.")
+        print("\n✅ 未发现需要修复的启动入口。")
 
 if __name__ == "__main__":
     main()

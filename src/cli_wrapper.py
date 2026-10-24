@@ -42,21 +42,21 @@ def handle_signal(signum, frame):
     sys.exit(130 if signum == signal.SIGINT else 143)
 
 def print_block_banner(ip, err, verb):
-    current_ip_str = ip if ip else "UNKNOWN/OFFLINE"
+    current_ip_str = ip if ip else "未获取"
     print(f"\033[91m", file=sys.stderr)
     print(f"==================================================", file=sys.stderr)
     print(f" 🚫 [ClaudeGuard] {verb}", file=sys.stderr)
     print(f"==================================================", file=sys.stderr)
-    print(f" Current Public IP : {current_ip_str}", file=sys.stderr)
-    print(f" Status            : NOT IN WHITELISTED VPN LIST", file=sys.stderr)
+    print(f" 当前出口： {current_ip_str}", file=sys.stderr)
+    print(f" 状态：出口未通过检查，禁止启动", file=sys.stderr)
     if err:
-        print(f" Error Details     : {err}", file=sys.stderr)
+        print(f" 原因： {err}", file=sys.stderr)
     print(f"--------------------------------------------------", file=sys.stderr)
-    print(f" Execution aborted to prevent Anthropic region flag.", file=sys.stderr)
+    print(f" 本次启动已取消，请检查出口 IP 和白名单设置。", file=sys.stderr)
     if ip and not ip.startswith("HTTP:"):
-        print(f" Add IP to whitelist: claudeguard add-ip {current_ip_str}", file=sys.stderr)
+        print(f" 确认该出口可信后，可加入白名单： claudeguard add-ip {current_ip_str}", file=sys.stderr)
     else:
-        print(" Review HTTP and STUN exits with 'claudeguard status'.", file=sys.stderr)
+        print(" 运行 claudeguard status 查看 HTTP 和 STUN 出口。", file=sys.stderr)
     print(f"\033[0m", file=sys.stderr)
 
 def main():
@@ -76,8 +76,8 @@ def main():
     # screen buffer, so printing first would wipe the message we just wrote.
     if not config.allowed_ips:
         force_restore_terminal()
-        print("\033[91m[ClaudeGuard] 🚫 BLOCK ERROR: No allowed VPN IPs configured in whitelist.\033[0m", file=sys.stderr)
-        print("Run 'claudeguard add-ip <YOUR_VPN_IP>' to configure access.", file=sys.stderr)
+        print("\033[91m[ClaudeGuard] 🚫 尚未设置 IP 白名单，已阻止启动。\033[0m", file=sys.stderr)
+        print("请运行 claudeguard add-ip <出口IP> 添加允许使用的出口。", file=sys.stderr)
         sys.exit(1)
 
     # Fail closed: only a confirmed "allowed" launches.
@@ -85,9 +85,9 @@ def main():
     if verdict != "allowed":
         force_restore_terminal()
         if verdict == "offline":
-            print_block_banner(ip, err or "No internet connection — IP can't be verified.", "ACCESS DENIED: CLAUDE CLI BLOCKED")
+            print_block_banner(ip, err or "暂时无法确认出口 IP，请检查网络和代理设置。", "已阻止启动 Claude Code")
         else:
-            print_block_banner(ip, err, "ACCESS DENIED: CLAUDE CLI BLOCKED")
+            print_block_banner(ip, err, "已阻止启动 Claude Code")
         sys.exit(1)
 
     # We're hooked on *this* PATH entry, but a reinstall may have taken over the
@@ -146,9 +146,9 @@ def run_real_claude(config):
 
     if not real_path or not os.path.exists(real_path):
         force_restore_terminal()
-        print("[ClaudeGuard] Error: the real Claude CLI could not be found.", file=sys.stderr)
-        print("  Run 'claudeguard doctor' to re-detect it, or", file=sys.stderr)
-        print("  'claudeguard set-cli-path /path/to/real/claude' to set it manually.", file=sys.stderr)
+        print("[ClaudeGuard] 未找到原始 Claude Code 程序。", file=sys.stderr)
+        print("  请运行 claudeguard doctor 重新查找，", file=sys.stderr)
+        print("  或用 claudeguard set-cli-path /path/to/real/claude 手动指定路径。", file=sys.stderr)
         sys.exit(1)
 
     env = os.environ.copy()
@@ -196,7 +196,7 @@ def run_real_claude(config):
             banner_ip, banner_err = ip, err
 
     if banner_ip is not None:
-        print_block_banner(banner_ip, banner_err, "CLAUDE CLI BLOCKED — IP NOT IN WHITELIST")
+        print_block_banner(banner_ip, banner_err, "出口未通过白名单检查，Claude Code 已停止运行")
         sys.exit(1)
 
     sys.exit(rc)

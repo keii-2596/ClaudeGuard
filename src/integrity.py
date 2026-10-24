@@ -204,17 +204,17 @@ def repair_cli(config, relink=True):
         if config.config.get("real_claude_cli_path") != real:
             config.config["real_claude_cli_path"] = real
             config.save_config()
-            report["changed"].append(f"hand-off target → {real}")
+            report["changed"].append(f"原始 Claude Code 路径已更新：{real}")
     else:
-        report["notes"].append("real 'claude' binary not found — install Claude Code, "
-                               "or run: claudeguard set-cli-path <path>")
+        report["notes"].append("未找到原始 Claude Code 程序，请先安装，"
+                               "或运行 claudeguard set-cli-path <path> 指定路径。")
 
     if not relink:
         return report
 
     wrapper = wrapper_path()
     if not os.path.isfile(wrapper):
-        report["notes"].append(f"wrapper missing at {wrapper} — reinstall ClaudeGuard")
+        report["notes"].append(f"启动检查脚本缺失：{wrapper}，请重新安装 ClaudeGuard。")
         return report
 
     for link_dir in CLI_LINK_DIRS:
@@ -227,7 +227,7 @@ def repair_cli(config, relink=True):
             try:
                 os.makedirs(link_dir, exist_ok=True)
             except OSError:
-                report["notes"].append(f"cannot create {link_dir}")
+                report["notes"].append(f"无法创建目录：{link_dir}")
                 continue
         elif is_our_wrapper(link) and os.path.realpath(link) == os.path.realpath(wrapper):
             continue
@@ -235,21 +235,21 @@ def repair_cli(config, relink=True):
         if exists and not real:
             # Taking the name over now would leave no working `claude` at all;
             # leaving it alone merely leaves it unguarded.
-            report["notes"].append(f"{link} left in place (real CLI unknown)")
+            report["notes"].append(f"未找到原始程序，已保留现有启动入口：{link}")
             continue
 
         if exists and not os.path.islink(link) and not is_our_wrapper(link):
             # A real binary copied in, not a symlink — replacing it would destroy
             # the install.
-            report["notes"].append(f"{link} is a real binary, not a symlink — not replaced")
+            report["notes"].append(f"{link} 是程序文件，已保留原文件，请另行接入启动检查。")
             continue
 
         if _relink(wrapper, link):
-            report["changed"].append(f"re-hooked {link}")
+            report["changed"].append(f"已恢复启动检查：{link}")
         elif not exists:
-            report["notes"].append(f"cannot write {link}")
+            report["notes"].append(f"无法写入启动入口：{link}")
         else:
-            report["notes"].append(f"cannot replace {link} (no permission)")
+            report["notes"].append(f"没有权限替换启动入口：{link}")
 
     return report
 
@@ -262,9 +262,9 @@ def repair_desktop(config):
         if config.config.get("real_claude_app_path") != app:
             config.config["real_claude_app_path"] = app
             config.save_config()
-            report["changed"].append(f"Claude Desktop → {app}")
+            report["changed"].append(f"Claude 桌面端路径已更新：{app}")
     else:
-        report["notes"].append("Claude Desktop not installed (nothing to guard)")
+        report["notes"].append("未找到 Claude 桌面端，暂不启用桌面端保护。")
     return report
 
 

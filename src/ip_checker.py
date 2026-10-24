@@ -72,10 +72,10 @@ def stun_public_ip(timeout=1.0):
 def fetch_public_ip(timeout=2.0, mode="http"):
     """Resolve one transport only; no fallback to the other transport."""
     if mode not in ("http", "stun"):
-        return None, "Single-IP lookup requires http or stun mode"
+        return None, "单协议检测仅支持 http 或 stun 模式"
     if mode == "stun":
         ip = stun_public_ip(timeout=min(timeout, 1.0))
-        return (ip, None) if ip else (None, "Unable to detect public IP via STUN")
+        return (ip, None) if ip else (None, "未能获取 STUN 出口 IP")
 
     for service in IP_CHECK_SERVICES:
         try:
@@ -104,7 +104,7 @@ def fetch_public_ip(timeout=2.0, mode="http"):
         except Exception:
             continue
 
-    return None, "Unable to detect public IP (No Internet or API timed out)"
+    return None, "未能获取 HTTP 出口 IP，请检查网络或稍后重试"
 
 def is_ip_allowed(current_ip, allowed_list):
     """
@@ -146,18 +146,18 @@ def perform_ip_check(allowed_ips, timeout=2.0, mode="both"):
     if mode == "auto":  # migrate legacy configurations without a racing policy
         mode = "both"
     if mode not in ("both", "http", "stun"):
-        return None, False, "Invalid ip_check_mode (expected both, http, or stun)"
+        return None, False, "ip_check_mode 配置有误，可选值为 both、http、stun"
     modes = ("http", "stun") if mode == "both" else (mode,)
     with ThreadPoolExecutor(max_workers=len(modes)) as pool:
         futures = {m: pool.submit(fetch_public_ip, timeout=timeout, mode=m) for m in modes}
         results = {m: f.result() for m, f in futures.items()}
     ips = {m: ip for m, (ip, _) in results.items() if ip}
-    display = "; ".join(f"{m.upper()}: {ips.get(m) or 'UNKNOWN'}" for m in modes)
+    display = "; ".join(f"{m.upper()}: {ips.get(m) or '未获取'}" for m in modes)
     if mode != "both" and ips:
         display = next(iter(ips.values()))
     if any(not is_ip_allowed(ip, allowed_ips) for ip in ips.values()):
         return display, False, None
     if len(ips) != len(modes):
-        errors = "; ".join(f"{m.upper()}: {err or 'No IP detected'}" for m, (ip, err) in results.items() if not ip)
+        errors = "; ".join(f"{m.upper()}: {err or '未获取出口 IP'}" for m, (ip, err) in results.items() if not ip)
         return None, False, errors
     return display, True, None

@@ -229,8 +229,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.runPkill(target: "Claude.app")
                 let reason: String
                 switch self.state {
-                case .offline: reason = "No internet connection — your IP can't be verified."
-                default:       reason = "Your public IP (\(self.currentIP)) is not in your allowed VPN whitelist."
+                case .offline: reason = "暂时无法确认出口 IP，请检查网络和代理设置。"
+                default:       reason = "当前出口未通过白名单检查：\(self.currentIP)。"
                 }
                 self.showBlockedAlert(reason: reason)
             }
@@ -378,7 +378,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let killed = killDesktopIfRunning()
             if killed && !hasAlertedThisBlock {   // alert once per blocked episode
                 hasAlertedThisBlock = true
-                showBlockedAlert(reason: "Your public IP (\(currentIP)) is not in your allowed VPN whitelist.")
+                showBlockedAlert(reason: "当前出口未通过白名单检查：\(currentIP)。")
             }
         case .allowed, .disabled, .offline:
             // offline: don't kill a running app — nothing to protect against.
@@ -403,7 +403,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     ]
 
     static func describeBoth(_ ips: [String: String]) -> String {
-        return "HTTP: \(ips["http"] ?? "UNKNOWN"); STUN: \(ips["stun"] ?? "UNKNOWN")"
+        return "HTTP: \(ips["http"] ?? "未获取"); STUN: \(ips["stun"] ?? "未获取")"
     }
 
     static func bothState(_ ips: [String: String], allowedList: [String]) -> GuardState {
@@ -602,9 +602,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.activate(ignoringOtherApps: true)
             let alert = NSAlert()
             alert.alertStyle = .critical
-            alert.messageText = "ClaudeGuard 🚫 Blocked"
-            alert.informativeText = "Claude Desktop was closed.\n\n\(reason)"
-            alert.addButton(withTitle: "OK")
+            alert.messageText = "ClaudeGuard 已拦截"
+            alert.informativeText = "Claude 桌面端已关闭。\n\n\(reason)"
+            alert.addButton(withTitle: "知道了")
             alert.window.level = .floating
             alert.runModal()
         }
@@ -649,12 +649,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - UI
 
+    var ipCheckModeTitle: String {
+        switch ipCheckMode {
+        case "both": return "HTTP 和 STUN"
+        case "http": return "仅 HTTP"
+        case "stun": return "仅 STUN"
+        default: return "配置有误"
+        }
+    }
+
     func statusText() -> String {
         switch state {
-        case .offline:  return "Status: ⚪ Offline (no connection)"
-        case .disabled: return "Status: 🟡 Protection Disabled"
-        case .allowed:  return "Status: 🟢 Protected (VPN OK)"
-        case .blocked:  return "Status: 🔴 BLOCKED (unallowed network)"
+        case .offline:  return "⚪ 暂时无法确认出口 IP"
+        case .disabled: return "🟡 防护已关闭"
+        case .allowed:  return "🟢 出口已通过白名单检查"
+        case .blocked:  return "🔴 出口未通过白名单检查，已拦截"
         }
     }
 
@@ -721,25 +730,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         status.isEnabled = false
         menu.addItem(status)
 
-        let ipItem = NSMenuItem(title: "🌐 Current IP: \(currentIP)", action: nil, keyEquivalent: "")
+        let ipItem = NSMenuItem(title: "🌐 当前出口：\(currentIP == "No Internet" ? "未获取" : currentIP)", action: nil, keyEquivalent: "")
         ipItem.isEnabled = false
         menu.addItem(ipItem)
 
         menu.addItem(.separator())
 
-        let recheck = NSMenuItem(title: "🔄 Re-check Now", action: #selector(onRecheck), keyEquivalent: "")
+        let recheck = NSMenuItem(title: "🔄 重新检测", action: #selector(onRecheck), keyEquivalent: "")
         recheck.target = self
         menu.addItem(recheck)
 
         menu.addItem(.separator())
 
-        let prot = NSMenuItem(title: protectionEnabled ? "✓ Protection Active" : "Protection Disabled", action: #selector(onToggleProtection), keyEquivalent: "")
+        let prot = NSMenuItem(title: protectionEnabled ? "✓ 防护已开启" : "防护已关闭", action: #selector(onToggleProtection), keyEquivalent: "")
         prot.target = self
         menu.addItem(prot)
 
-        let modeItem = NSMenuItem(title: "IP Detection: \(ipCheckMode)", action: nil, keyEquivalent: "")
+        let modeItem = NSMenuItem(title: "出口检测：\(ipCheckModeTitle)", action: nil, keyEquivalent: "")
         let modeMenu = NSMenu()
-        for (value, title) in [("both", "Both (HTTP and STUN must pass)"), ("http", "HTTP Only"), ("stun", "STUN Only")] {
+        for (value, title) in [("both", "同时检查 HTTP 和 STUN（两项都须通过）"), ("http", "只检查 HTTP"), ("stun", "只检查 STUN")] {
             let item = NSMenuItem(title: title, action: #selector(onSelectIPCheckMode(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = value
@@ -749,18 +758,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         modeItem.submenu = modeMenu
         menu.addItem(modeItem)
 
-        let upd = NSMenuItem(title: blockAutoUpdates ? "✓ Block Auto-Updates" : "Allow Auto-Updates", action: #selector(onToggleUpdates), keyEquivalent: "")
+        let upd = NSMenuItem(title: blockAutoUpdates ? "✓ 已禁止自动更新" : "允许自动更新", action: #selector(onToggleUpdates), keyEquivalent: "")
         upd.target = self
         menu.addItem(upd)
 
         menu.addItem(.separator())
 
-        let modelToggle = NSMenuItem(title: modelOverrideEnabled ? "✓ Default Model: \(defaultModel)" : "Default Model Override (off)", action: #selector(onToggleModelOverride), keyEquivalent: "")
+        let modelToggle = NSMenuItem(title: modelOverrideEnabled ? "✓ 固定模型：\(defaultModel)" : "固定模型（未启用）", action: #selector(onToggleModelOverride), keyEquivalent: "")
         modelToggle.target = self
         menu.addItem(modelToggle)
 
         if modelOverrideEnabled {
-            let changeModel = NSMenuItem(title: "    Change Model…", action: #selector(onChangeModel), keyEquivalent: "")
+            let changeModel = NSMenuItem(title: "    更换模型…", action: #selector(onChangeModel), keyEquivalent: "")
             changeModel.target = self
             menu.addItem(changeModel)
         }
@@ -768,19 +777,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
 
         for ip in Set(detectedIPs.values).sorted() where !allowedIPs.contains(ip) {
-            let add = NSMenuItem(title: "➕ Whitelist IP (\(ip))", action: #selector(onAddCurrentIP(_:)), keyEquivalent: "")
+            let add = NSMenuItem(title: "➕ 将 \(ip) 加入白名单", action: #selector(onAddCurrentIP(_:)), keyEquivalent: "")
             add.target = self
             add.representedObject = ip
             menu.addItem(add)
         }
 
-        let manage = NSMenuItem(title: "⚙️ Manage Whitelisted IPs…", action: #selector(onManageIPs), keyEquivalent: "")
+        let manage = NSMenuItem(title: "⚙️ 管理 IP 白名单…", action: #selector(onManageIPs), keyEquivalent: "")
         manage.target = self
         menu.addItem(manage)
 
         menu.addItem(.separator())
 
-        let quit = NSMenuItem(title: "Quit ClaudeGuard", action: #selector(onQuit), keyEquivalent: "")
+        let quit = NSMenuItem(title: "退出 ClaudeGuard", action: #selector(onQuit), keyEquivalent: "")
         quit.target = self
         menu.addItem(quit)
     }
@@ -822,7 +831,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func onChangeModel() {
-        let script = "display dialog \"Enter Claude model ID (e.g. claude-opus-4-8):\" default answer \"\(defaultModel)\" with title \"ClaudeGuard Default Model\""
+        let script = "display dialog \"输入模型名称，例如 claude-opus-4-8：\" default answer \"\(defaultModel)\" with title \"ClaudeGuard 固定模型\" buttons {\"取消\", \"保存\"} default button \"保存\" cancel button \"取消\""
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", script]
@@ -853,7 +862,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func onManageIPs() {
         let ipsStr = allowedIPs.joined(separator: ", ")
-        let script = "display dialog \"Enter Whitelisted VPN IPs (comma separated):\" default answer \"\(ipsStr)\" with title \"ClaudeGuard IP Whitelist\""
+        let script = "display dialog \"输入允许使用的出口 IP 或 CIDR 网段，多个地址用英文逗号分隔：\" default answer \"\(ipsStr)\" with title \"ClaudeGuard IP 白名单\" buttons {\"取消\", \"保存\"} default button \"保存\" cancel button \"取消\""
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", script]

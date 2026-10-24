@@ -20,7 +20,7 @@
 
 ## 设置方式
 
-安装此 fork 后，在菜单栏 **IP Detection** 中选择模式，或运行：
+安装此 fork 后，在菜单栏 **出口检测** 中选择模式，或运行：
 
 ```bash
 claudeguard set-ip-check-mode both

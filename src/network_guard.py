@@ -162,7 +162,7 @@ def sync_hosts_file(block_claude_domains, block_update_domains, config):
     (TCP + UDP QUIC)."""
     try:
         if not os.path.exists(HOSTS_PATH):
-            return False, "File /etc/hosts does not exist"
+            return False, "未找到 /etc/hosts 文件"
 
         with open(HOSTS_PATH, "r", encoding="utf-8") as f:
             content = f.read()
@@ -221,9 +221,9 @@ def sync_hosts_file(block_claude_domains, block_update_domains, config):
 
         write_hosts(final_content)
 
-        return True, "Hosts and PF synced successfully"
+        return True, "域名拦截和防火墙规则已提交给系统网络助手"
     except Exception as e:
-        return False, f"Failed to sync hosts: {e}"
+        return False, f"提交网络拦截设置失败：{e}"
 
 def remove_section(text, header, footer):
     while header in text and footer in text:

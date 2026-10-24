@@ -58,7 +58,7 @@ class ConfigManager:
                         data[k] = v
                 return data
         except Exception as e:
-            print(f"[ClaudeGuard] Error reading config: {e}. Reverting to defaults.")
+            print(f"[ClaudeGuard] 配置读取失败，将使用默认设置：{e}")
             return DEFAULT_CONFIG.copy()
 
     def save_config(self, data=None):
@@ -148,6 +148,6 @@ class ConfigManager:
     @ip_check_mode.setter
     def ip_check_mode(self, value):
         if value not in ("both", "http", "stun"):
-            raise ValueError("ip_check_mode must be both, http, or stun")
+            raise ValueError("ip_check_mode 只能设为 both、http 或 stun")
         self.config["ip_check_mode"] = value
         self.save_config()

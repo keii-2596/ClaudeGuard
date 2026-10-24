@@ -14,7 +14,7 @@ def apply_auto_update_lock(block_updates):
     try:
         targets = desktop_update_paths()
         if not targets:
-            return True, "No Claude Desktop update state found (nothing to lock)"
+            return True, "未找到 Claude 桌面端的更新文件，无需锁定"
 
         for path in targets:
             recursive = ["-R"] if os.path.isdir(path) else []
@@ -26,6 +26,6 @@ def apply_auto_update_lock(block_updates):
                 subprocess.run(["chmod"] + recursive + ["755" if os.path.isdir(path) else "644", path],
                                check=False)
 
-        return True, f"Auto-update lock applied to {len(targets)} path(s)"
+        return True, f"已处理 {len(targets)} 处自动更新文件"
     except Exception as e:
-        return False, f"Failed to modify auto-update locks: {e}"
+        return False, f"修改自动更新设置失败：{e}"

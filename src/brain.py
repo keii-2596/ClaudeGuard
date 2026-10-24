@@ -62,7 +62,7 @@ def get_verdict(config, timeout=2.0, allow_fallback=True):
         return v, st.get("ip"), None
 
     if not allow_fallback:
-        return "offline", None, "ClaudeGuard daemon not running"
+        return "offline", None, "后台守护未运行，或检测结果与当前配置不一致"
 
     ip, is_allowed, err = perform_ip_check(config.allowed_ips, timeout=timeout, mode=config.ip_check_mode)
     if ip is None:
