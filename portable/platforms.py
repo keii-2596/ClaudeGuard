@@ -34,7 +34,7 @@ def stop_tree(process):
 
 
 def enforce(paths):
-    paths = {normalized(p) for p in paths if p and Path(p).is_file()}
+    paths = {normalized(p) for p in paths if p}
     failures = []
     for process in psutil.process_iter(["pid", "exe", "username"]):
         try:
