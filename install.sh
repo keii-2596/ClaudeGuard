@@ -3,7 +3,7 @@
 # ClaudeGuard installer.
 #
 # Works two ways from the SAME file:
-#   • One-liner:   bash -c "$(curl -fsSL https://raw.githubusercontent.com/ivblz/ClaudeGuard/main/install.sh)"
+#   • One-liner:   bash -c "$(curl -fsSL https://raw.githubusercontent.com/keii-2596/ClaudeGuard/main/install.sh)"
 #   • Local:       ./install.sh   (from a git checkout or unpacked archive)
 #
 # When run via curl|bash there's no local source tree, so the script first
@@ -15,7 +15,7 @@ set -euo pipefail
 
 # Which repo the one-liner pulls from. Override without editing:
 #   CLAUDEGUARD_REPO=you/ClaudeGuard bash -c "$(curl -fsSL .../install.sh)"
-REPO="${CLAUDEGUARD_REPO:-ivblz/ClaudeGuard}"
+REPO="${CLAUDEGUARD_REPO:-keii-2596/ClaudeGuard}"
 BRANCH="${CLAUDEGUARD_BRANCH:-main}"
 
 INSTALL_DIR="$HOME/.local/share/ClaudeGuard"

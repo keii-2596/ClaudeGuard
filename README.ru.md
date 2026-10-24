@@ -48,7 +48,7 @@ quarantine-флага, поэтому **Gatekeeper ничего не блоки�
 **Вариант 1 - одной строкой** (скачает и соберёт с GitHub):
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/ivblz/ClaudeGuard/main/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/keii-2596/ClaudeGuard/main/install.sh)"
 ```
 
 **Вариант 2 - из локальной копии** (склонированное или скачанное репо; GitHub не задействуется):

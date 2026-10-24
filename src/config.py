@@ -7,6 +7,7 @@ CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 
 DEFAULT_CONFIG = {
     "allowed_ips": [],
+    "ip_check_mode": "auto",
     "protection_enabled": True,
     "block_auto_updates": True,
     "model_override_enabled": False,
@@ -138,3 +139,14 @@ class ConfigManager:
     @property
     def real_claude_app(self):
         return self.config.get("real_claude_app_path", "/Applications/Claude.app")
+
+    @property
+    def ip_check_mode(self):
+        return self.config.get("ip_check_mode", "auto")
+
+    @ip_check_mode.setter
+    def ip_check_mode(self, value):
+        if value not in ("auto", "http", "stun"):
+            raise ValueError("ip_check_mode must be auto, http, or stun")
+        self.config["ip_check_mode"] = value
+        self.save_config()

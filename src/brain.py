@@ -52,7 +52,10 @@ def get_verdict(config, timeout=2.0, allow_fallback=True):
         return "allowed", None, None
 
     st = read_daemon_state()
-    if st is not None:
+    if (st is not None
+            and st.get("protection_enabled") == config.protection_enabled
+            and st.get("ip_check_mode") == config.ip_check_mode
+            and st.get("allowed_ips") == config.allowed_ips):
         v = st.get("state", "offline")
         if v == "disabled":  # the daemon has its own vocabulary; normalise it
             return "allowed", st.get("ip"), None
@@ -61,7 +64,7 @@ def get_verdict(config, timeout=2.0, allow_fallback=True):
     if not allow_fallback:
         return "offline", None, "ClaudeGuard daemon not running"
 
-    ip, is_allowed, err = perform_ip_check(config.allowed_ips, timeout=timeout)
+    ip, is_allowed, err = perform_ip_check(config.allowed_ips, timeout=timeout, mode=config.ip_check_mode)
     if ip is None:
         return "offline", None, err
     return ("allowed" if is_allowed else "blocked"), ip, err
@@ -77,7 +80,7 @@ def resolve_display_ip(config, timeout=2.0):
             return ip
     try:
         from src.ip_checker import fetch_public_ip
-        ip, _ = fetch_public_ip(timeout=timeout)
+        ip, _ = fetch_public_ip(timeout=timeout, mode=config.ip_check_mode)
         return ip
     except Exception:
         return None

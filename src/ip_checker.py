@@ -68,11 +68,16 @@ def stun_public_ip(timeout=1.0):
             continue
     return None
 
-def fetch_public_ip(timeout=2.0):
-    """(ip, None) or (None, error_msg). STUN first (fast UDP), then HTTP."""
-    ip = stun_public_ip(timeout=min(timeout, 1.0))
-    if ip:
-        return ip, None
+def fetch_public_ip(timeout=2.0, mode="auto"):
+    """Resolve using the selected transport. Explicit modes never cross-fallback."""
+    if mode not in ("auto", "http", "stun"):
+        return None, "Invalid ip_check_mode (expected auto, http, or stun)"
+    if mode != "http":
+        ip = stun_public_ip(timeout=min(timeout, 1.0))
+        if ip:
+            return ip, None
+        if mode == "stun":
+            return None, "Unable to detect public IP via STUN"
 
     for service in IP_CHECK_SERVICES:
         try:
@@ -134,11 +139,11 @@ def is_ip_allowed(current_ip, allowed_list):
 
     return False
 
-def perform_ip_check(allowed_ips, timeout=2.0):
+def perform_ip_check(allowed_ips, timeout=2.0, mode="auto"):
     """
     Full helper function that returns (ip, is_allowed, error_msg).
     """
-    ip, err = fetch_public_ip(timeout=timeout)
+    ip, err = fetch_public_ip(timeout=timeout, mode=mode)
     if err or not ip:
         return None, False, err or "No IP detected"
     

@@ -36,6 +36,10 @@ ClaudeGuard solves that: every launch and every running session is checked again
 - ❄️ **Freeze auto-updates** - blocks Claude's update servers and locks the update dirs.
 - 🤖 **Default model override** - pin a model for every `claude` session (e.g. `claude-opus-4-8`) from the menu bar; the CLI wrapper injects `--model` automatically so you don't have to type it each time.
 
+## 出口检测模式
+
+基于 [ivblz/ClaudeGuard](https://github.com/ivblz/ClaudeGuard) 的本 fork 增加 `ip_check_mode` 配置，可选择 `auto`、`http` 或 `stun`。使用 HTTP 代理且 UDP 走直连时，选择 `http`，避免 STUN 与 HTTP 返回不同出口造成误拦截。菜单栏的 **IP Detection** 子菜单和 `claudeguard set-ip-check-mode http` 均可切换。完整行为与验证方式见 [出口检测配置](docs/ip-check-mode.md)。
+
 ## Install
 
 The installer compiles the native binaries (Swift + C) **on your machine**. Locally-compiled binaries
@@ -48,7 +52,7 @@ Two ways to install - both give the exact same result.
 **Option 1 - one line** (downloads and builds from GitHub):
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/ivblz/ClaudeGuard/main/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/keii-2596/ClaudeGuard/main/install.sh)"
 ```
 
 **Option 2 - from a local copy** (a cloned or downloaded repo; never touches GitHub):
@@ -73,7 +77,8 @@ After install the `claudeguard` command is available:
 
 | Command | What it does |
 |---|---|
-| `claudeguard status` | Current status, IP and whitelist |
+| `claudeguard status` | Current status, IP, detection mode and whitelist |
+| `claudeguard set-ip-check-mode <auto\|http\|stun>` | Select the public-IP detection transport |
 | `claudeguard add-ip <ip>` | Add an IP or CIDR to the whitelist |
 | `claudeguard remove-ip <ip>` | Remove an IP from the whitelist |
 | `claudeguard list-ips` | List whitelisted IPs |
@@ -101,9 +106,9 @@ it immediately) at any time.
 
 ## How it works
 
-1. **STUN-first IP detection** - the public IP is resolved via a single UDP STUN round-trip (tens of ms), falling back to HTTP echo services on networks that block UDP.
+1. **Selectable IP detection** - `http` queries only HTTP services, `stun` queries only UDP STUN. The default `auto` preserves upstream behavior: the daemon races both transports, while the Python fallback tries STUN before HTTP.
 2. **The brain** (`src/brain.py`) turns that IP into one verdict - `allowed` / `blocked` / `offline` - and it **fails closed**: only a confirmed `allowed` lets Claude run.
-3. **Single source of truth** - the menu bar daemon writes its verdict to `~/.config/claudeguard/state.json` on every check. The CLI wrapper and app launcher read it (instant), and fall back to their own check only if the daemon is down.
+3. **Single source of truth** - the menu bar daemon writes its verdict to `~/.config/claudeguard/state.json` on every check. The CLI wrapper and app launcher read it (instant), and fall back to their own check if the daemon is down, its state is stale, or its detection mode / whitelist differs from the current configuration.
 4. **Enforcement** - the whole Claude/Anthropic domain family (~175 hosts across 5 apex domains) is blocked via `/etc/hosts` + a pf firewall rule (TCP + UDP/QUIC); the desktop app is force-quit with an alert; a running `claude` session is killed the moment the IP leaves the whitelist.
 
 > **Scope:** this is accidental-leak protection for your own machine, not a defense against a malicious admin. The truly unbypassable layer (a Network Extension content filter) requires a paid Apple Developer account; the on-device approach here is the free ceiling and covers accidental leaks well.

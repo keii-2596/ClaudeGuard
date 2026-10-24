@@ -37,6 +37,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var modelOverrideEnabled: Bool = false
     var defaultModel: String = "claude-opus-4-8"
     var allowedIPs: [String] = []
+    var ipCheckMode: String = "auto"
+    var verdictIPCheckMode: String = "auto"
+    var verdictAllowedIPs: [String] = []
 
     var dynamicStore: SCDynamicStore?
     var pathMonitor: NWPathMonitor?
@@ -267,6 +270,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// push enforcement on transitions, publish the verdict.
     func performCheck() {
         loadConfig()
+        let checkedMode = ipCheckMode
+        let checkedIPs = allowedIPs
 
         let newState: GuardState
         if !protectionEnabled {
@@ -277,12 +282,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // short resolve, because that flag can go stale across a Wi-Fi/VPN
             // handoff and would otherwise pin us to offline until a reboot. A
             // resolved IP always overrides the hint (and repairs it).
-            let ip = hasNetworkPath ? resolvePublicIPWithRetry()
-                                    : resolvePublicIP(deadline: 1.5)
+            let ip = hasNetworkPath ? resolvePublicIPWithRetry(mode: checkedMode)
+                                    : resolvePublicIP(deadline: 1.5, mode: checkedMode)
             if let ip = ip {
                 currentIP = ip
                 if !hasNetworkPath { hasNetworkPath = true }   // hint was stale
-                let ok = Self.isIPAllowed(ip, allowedList: allowedIPs)
+                let ok = Self.isIPAllowed(ip, allowedList: checkedIPs)
                 newState = ok ? .allowed(ip: ip) : .blocked(ip: ip)
             } else {
                 currentIP = "No Internet"
@@ -292,6 +297,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let previous = state
         state = newState
+        verdictIPCheckMode = checkedMode
+        verdictAllowedIPs = checkedIPs
         apply(from: previous, to: newState)
         writeStateFile()  // publish verdict for the CLI wrapper
 
@@ -312,7 +319,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let dict: [String: Any] = [
             "state": stateStr,
             "ip": currentIP,
-            "protection_enabled": protectionEnabled,
+            "ip_check_mode": verdictIPCheckMode,
+            "allowed_ips": verdictAllowedIPs,
+            "protection_enabled": stateStr != "disabled",
             "updated_at": Date().timeIntervalSince1970
         ]
         let path = NSString(string: "~/.config/claudeguard/state.json").expandingTildeInPath
@@ -381,18 +390,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Resolves the public IP with a brief retry — right after a VPN/Wi-Fi
     /// handshake the route is momentarily unstable, and a single failed lookup
     /// used to falsely flash "offline".
-    func resolvePublicIPWithRetry(attempts: Int = 2, deadline: TimeInterval = 2.0) -> String? {
+    func resolvePublicIPWithRetry(attempts: Int = 2, deadline: TimeInterval = 2.0, mode: String? = nil) -> String? {
         for attempt in 0..<attempts {
-            if let ip = resolvePublicIP(deadline: deadline) { return ip }
+            if let ip = resolvePublicIP(deadline: deadline, mode: mode) { return ip }
             if attempt < attempts - 1 { Thread.sleep(forTimeInterval: 0.5) }
         }
         return nil
     }
 
-    /// Races a STUN query against the HTTP IP services in parallel; first valid
-    /// answer wins. STUN wins instantly when online; HTTP covers networks that
-    /// block UDP/STUN. A single ~2s deadline bounds the offline case.
-    func resolvePublicIP(deadline: TimeInterval = 2.0) -> String? {
+    /// Auto races STUN against HTTP; explicit modes query only their transport.
+    /// The first valid answer wins within a single shared deadline.
+    func resolvePublicIP(deadline: TimeInterval = 2.0, mode selectedMode: String? = nil) -> String? {
+        let mode = selectedMode ?? ipCheckMode
+        guard ["auto", "http", "stun"].contains(mode) else { return nil }
         let sem = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var result: String? = nil
@@ -407,7 +417,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // STUN (fast path)
         var conns: [NWConnection] = []
-        for (host, port) in stunServers {
+        for (host, port) in (mode == "http" ? [] : stunServers) {
             if let c = stunQuery(host: host, port: port, completion: { offer($0) }) {
                 conns.append(c)
             }
@@ -418,7 +428,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         cfg.timeoutIntervalForRequest = deadline
         cfg.timeoutIntervalForResource = deadline
         let session = URLSession(configuration: cfg)
-        for service in httpServices {
+        for service in (mode == "stun" ? [] : httpServices) {
             guard let url = URL(string: service) else { continue }
             var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: deadline)
             req.setValue("ClaudeGuard/1.0", forHTTPHeaderField: "User-Agent")
@@ -596,6 +606,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: configPath)),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         if let ips = json["allowed_ips"] as? [String] { allowedIPs = ips }
+        ipCheckMode = json["ip_check_mode"] == nil ? "auto" : ((json["ip_check_mode"] as? String) ?? "invalid")
         if let p = json["protection_enabled"] as? Bool { protectionEnabled = p }
         if let u = json["block_auto_updates"] as? Bool { blockAutoUpdates = u }
         if let m = json["model_override_enabled"] as? Bool { modelOverrideEnabled = m }
@@ -607,6 +618,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let data = try? Data(contentsOf: URL(fileURLWithPath: configPath)),
            let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { json = existing }
         json["allowed_ips"] = allowedIPs
+        json["ip_check_mode"] = ipCheckMode
         json["protection_enabled"] = protectionEnabled
         json["block_auto_updates"] = blockAutoUpdates
         json["model_override_enabled"] = modelOverrideEnabled
@@ -706,6 +718,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         prot.target = self
         menu.addItem(prot)
 
+        let modeItem = NSMenuItem(title: "IP Detection: \(ipCheckMode)", action: nil, keyEquivalent: "")
+        let modeMenu = NSMenu()
+        for (value, title) in [("auto", "Auto (STUN + HTTP)"), ("http", "HTTP Only"), ("stun", "STUN Only")] {
+            let item = NSMenuItem(title: title, action: #selector(onSelectIPCheckMode(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = value
+            item.state = ipCheckMode == value ? .on : .off
+            modeMenu.addItem(item)
+        }
+        modeItem.submenu = modeMenu
+        menu.addItem(modeItem)
+
         let upd = NSMenuItem(title: blockAutoUpdates ? "✓ Block Auto-Updates" : "Allow Auto-Updates", action: #selector(onToggleUpdates), keyEquivalent: "")
         upd.target = self
         menu.addItem(upd)
@@ -747,6 +771,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func onRecheck() { recheckAsync() }
+
+    @objc func onSelectIPCheckMode(_ sender: NSMenuItem) {
+        guard let mode = sender.representedObject as? String,
+              ["auto", "http", "stun"].contains(mode) else { return }
+        ipCheckMode = mode
+        saveConfig()
+        rebuildMenu()
+        recheckAsync()
+    }
 
     @objc func onToggleProtection() {
         protectionEnabled.toggle()
