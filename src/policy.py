@@ -164,7 +164,8 @@ def evaluate(data, ips, directory, acknowledge=False, expected_ips=None, now=Non
             if data['detect_ip_change'] and state['jump_latched'] and not acknowledge:
                 return {**deny('检测到 IP 跳变，已持续拦截。请确认是否信任当前 IP'), 'jump_latched': True, 'jump_details': state.get('jump_details', {})}
             if len(ips) != len(modes):
-                return deny('未能确认全部出口 IP，暂不放行')
+                missing = '、'.join(m.upper() for m in modes if m not in ips)
+                return deny(f'未获取到 {missing} 出口 IP，暂不放行。请检查代理连接或稍后重新检测')
             if acknowledge:
                 state['jump_latched'] = False
                 state.pop('jump_details', None)

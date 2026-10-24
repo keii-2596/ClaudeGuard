@@ -42,6 +42,14 @@ claudeguard set-check-interval 3
 claudeguard set check_interval 3
 ```
 
+## macOS 检测日志
+
+“设置 → 查看检测日志”打开 `~/.config/claudeguard/events.jsonl`。日志记录出口探测失败、判定变化和实际关闭 Claude 的操作，包含时间、检测协议、HTTP 状态码或网络错误码。不会保存聊天内容、代理密码或 API Key。
+
+单个日志最大约 1 MiB，轮换保留一个 `.1` 文件。连续正常检测不逐轮写入，避免日志快速增长。LaunchAgent 的标准输出和错误输出仍在 `/tmp/claudeguard.log`、`/tmp/claudeguard.err`，它们主要用于程序运行异常排查。
+
+“未获取到 HTTP 出口 IP”表示本轮没有拿到有效探测结果。macOS 当前每轮 HTTP 检测最多等待 2 秒，超时、代理连接失败或探测服务异常都可能触发，不能据此判断出口 IP 已超出白名单。程序会保持拦截，下轮检测通过后恢复放行。开启跳变检测时，如果探测失败仍会停止桌面端，后续再次探测成功可能使弹窗看起来像间歇出现。应结合日志中的失败时间与拦截事件排查具体原因。
+
 ## 评分缓存
 
 默认缓存 6 小时，可设置为 1 秒至 7 天。

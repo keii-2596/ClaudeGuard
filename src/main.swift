@@ -45,6 +45,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var policyReason: String = ""
     var policyScriptPath = NSString(string: "~/.local/share/ClaudeGuard/src/policy_cli.py").expandingTildeInPath
     var riskScores: [String: Any] = [:]
+    var eventLogPath = NSString(string: "~/.config/claudeguard/events.jsonl").expandingTildeInPath
+    private let eventLogLock = NSLock()
+
+    func logEvent(_ event: String, fields: [String: Any] = [:]) {
+        eventLogLock.lock()
+        defer { eventLogLock.unlock() }
+        let record = fields.merging(["time": ISO8601DateFormatter().string(from: Date()), "event": event]) { _, new in new }
+        guard var data = try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]) else { return }
+        data.append(10)
+        let path = URL(fileURLWithPath: eventLogPath)
+        let manager = FileManager.default
+        do {
+            try manager.createDirectory(at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let size = (try? manager.attributesOfItem(atPath: path.path)[.size] as? NSNumber)?.intValue ?? 0
+            if size + data.count > 1048576 {
+                let backup = path.appendingPathExtension("1")
+                if manager.fileExists(atPath: backup.path) { try manager.removeItem(at: backup) }
+                if manager.fileExists(atPath: path.path) { try manager.moveItem(at: path, to: backup) }
+            }
+            if !manager.fileExists(atPath: path.path) {
+                manager.createFile(atPath: path.path, contents: nil, attributes: [.posixPermissions: 0o600])
+            }
+            let handle = try FileHandle(forWritingTo: path)
+            defer { handle.closeFile() }
+            handle.seekToEndOfFile()
+            handle.write(data)
+        } catch {
+            fputs("ClaudeGuard: 无法写入检测日志\n", stderr)
+        }
+    }
+
     var jumpBlocked = false
     var pollTimer: Timer?
     var scheduledPollInterval: Double = 0
@@ -112,6 +143,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = menu
 
         loadConfig()
+        logEvent("guard_started", fields: ["mode": ipCheckMode, "check_interval": checkInterval])
         rebuildMenu()
 
         setupAppLaunchInterceptor()
@@ -262,6 +294,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 // Fail closed on a fresh launch, even offline: an unverified
                 // session must not start.
                 if case .allowed = self.state { return }
+                self.logEvent("desktop_launch_blocked", fields: ["reason": self.policyReason, "ip": self.currentIP])
                 app.forceTerminate()
                 self.runPkill(target: "Claude.app")
                 let reason: String
@@ -308,6 +341,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// push enforcement on transitions, publish the verdict.
     func performCheck() {
         loadConfig()
+        let previousReason = policyReason
         let checkedMode = ipCheckMode
         let checkedIPs = allowedIPs
         let checkedPolicy = policyConfig
@@ -350,6 +384,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let previous = state
         state = newState
+        if previous != newState || previousReason != policyReason {
+            logEvent("verdict_changed", fields: ["state": statusText(), "mode": checkedMode,
+                     "detected_ips": detectedIPs, "reason": policyReason, "jump_latched": jumpBlocked])
+        }
         verdictIPCheckMode = checkedMode
         verdictAllowedIPs = checkedIPs
         verdictPolicyConfig = checkedPolicy
@@ -423,6 +461,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         switch new {
         case .blocked:
             let killed = killDesktopIfRunning()
+            if killed { logEvent("desktop_closed", fields: ["reason": policyReason, "ip": currentIP]) }
             if killed && !hasAlertedThisBlock {   // alert once per blocked episode
                 hasAlertedThisBlock = true
                 showBlockedAlert(reason: policyReason.isEmpty ? "当前出口未通过白名单检查：\(currentIP)。" : policyReason)
@@ -490,6 +529,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let sem = DispatchSemaphore(value: 0)
         let lock = NSLock()
         var result: String? = nil
+        var diagnostics: [String: [String: Any]] = [:]
+        let started = Date()
         func offer(_ ip: String?) {
             guard let ip = ip, !ip.isEmpty else { return }
             lock.lock()
@@ -521,9 +562,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let url = URL(string: service) else { continue }
             var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: deadline)
             req.setValue("ClaudeGuard/1.0", forHTTPHeaderField: "User-Agent")
-            session.dataTask(with: req) { data, _, err in
-                guard err == nil else { return }
-                offer(Self.parseHTTPIP(data))
+            session.dataTask(with: req) { data, response, err in
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                let parsed = Self.parseHTTPIP(data)
+                var detail: [String: Any] = ["http_status": code, "elapsed_ms": Int(Date().timeIntervalSince(started) * 1000)]
+                if let error = err as NSError? {
+                    detail["error_domain"] = error.domain
+                    detail["error_code"] = error.code
+                } else if !(200...299).contains(code) {
+                    detail["error"] = "HTTP 状态异常"
+                } else if parsed == nil {
+                    detail["error"] = "响应不含有效 IP"
+                }
+                lock.lock(); diagnostics[service] = detail; lock.unlock()
+                guard err == nil, (200...299).contains(code) else { return }
+                offer(parsed)
             }.resume()
         }
 
@@ -531,7 +584,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         conns.forEach { $0.cancel() }
         session.invalidateAndCancel()
 
-        lock.lock(); let ip = result; lock.unlock()
+        lock.lock(); let ip = result; let details = diagnostics; lock.unlock()
+        if ip == nil {
+            var fields: [String: Any] = ["mode": mode, "deadline_seconds": deadline, "elapsed_ms": Int(Date().timeIntervalSince(started) * 1000)]
+            if mode == "http" {
+                fields["services"] = Dictionary(uniqueKeysWithValues: httpServices.map { ($0, details[$0] ?? ["error": "截止时间内未返回"]) })
+            }
+            logEvent("probe_failed", fields: fields)
+        }
         return ip
     }
 
@@ -539,12 +599,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let data = data,
               let str = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !str.isEmpty else { return nil }
+        let candidate: String
         if str.contains("{"), let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let ip = json["ip"] as? String {
-            return ip.trimmingCharacters(in: .whitespacesAndNewlines)
-        } else if !str.contains("<") {
-            return str
+            candidate = ip.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            candidate = str
         }
-        return nil
+        return IPv4Address(candidate) != nil || IPv6Address(candidate) != nil ? candidate : nil
     }
 
     /// Fires one STUN Binding Request over UDP and calls `completion` with the
@@ -863,6 +924,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let settingsItem = NSMenuItem(title: "设置", action: nil, keyEquivalent: "")
         let settingsMenu = NSMenu()
+        let logs = NSMenuItem(title: "查看检测日志…", action: #selector(onOpenLogs), keyEquivalent: "")
+        logs.target = self
+        settingsMenu.addItem(logs)
+        settingsMenu.addItem(.separator())
         let cliProxy = NSMenuItem(title: "Claude Code 始终使用 HTTP 代理", action: #selector(onToggleCLIProxy), keyEquivalent: "")
         cliProxy.target = self
         cliProxy.state = policyConfig["cli_http_proxy_enabled"] as? Bool == true ? .on : .off
@@ -1036,6 +1101,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         policyConfig["cli_http_proxy_enabled"] = !enabled
         saveConfig()
         rebuildMenu()
+    }
+    @objc func onOpenLogs() {
+        logEvent("log_opened")
+        NSWorkspace.shared.open(URL(fileURLWithPath: eventLogPath))
     }
     @objc func onCheckInterval() {
         setPolicyNumber(key: "check_interval", title: "出口轮询间隔（秒，建议 3 秒）", fallback: 3, min: 1, max: 60)

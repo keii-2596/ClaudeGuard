@@ -41,7 +41,17 @@ for (ips, expected) in cases {
 if case .allowed = AppDelegate.bothState(["http": good, "stun": bad], allowedList: ["203.0.113.0/24"]) {} else {
     fatalError("Both distinct whitelisted IPs must pass")
 }
+precondition(AppDelegate.parseHTTPIP(Data("Too many requests".utf8)) == nil)
+precondition(AppDelegate.parseHTTPIP(Data("203.0.113.10".utf8)) == good)
+precondition(AppDelegate.parseHTTPIP(Data("2001:db8::1".utf8)) == "2001:db8::1")
 let native = AppDelegate()
+native.eventLogPath = URL(fileURLWithPath: CommandLine.arguments[2]).deletingLastPathComponent().appendingPathComponent("events.jsonl").path
+native.logEvent("test_event", fields: ["reason": "测试"])
+let log = try! String(contentsOfFile: native.eventLogPath, encoding: .utf8)
+precondition(log.contains("test_event") && log.contains("测试"))
+try! Data(repeating: 32, count: 1048576).write(to: URL(fileURLWithPath: native.eventLogPath))
+native.logEvent("after_rotation")
+precondition(FileManager.default.fileExists(atPath: native.eventLogPath + ".1"))
 native.policyScriptPath = CommandLine.arguments[1]
 native.configPath = CommandLine.arguments[2]
 let config: [String: Any] = ["access_mode": "whitelist", "ip_check_mode": "http", "detect_ip_change": true,
