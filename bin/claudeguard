@@ -12,7 +12,7 @@ from src.config import ConfigManager
 from src import policy
 from pathlib import Path
 from src.brain import get_verdict, daemon_is_up, resolve_display_ip
-from src.integrity import cli_hook_status, repair, repair_cli
+from src.integrity import cli_hook_status, repair, repair_cli, is_our_wrapper
 from src.network_guard import sync_hosts_file
 from src.update_guard import apply_auto_update_lock
 
@@ -255,6 +255,12 @@ def main():
         path = os.path.realpath(sys.argv[2])
         if not os.path.isfile(path):
             print(f"路径不存在或不是文件：{path}")
+            sys.exit(1)
+        if is_our_wrapper(path):
+            print("这是 ClaudeGuard 的启动检查脚本，不是原始 Claude 程序。请运行 claudeguard doctor 自动查找。")
+            sys.exit(1)
+        if not os.access(path, os.X_OK):
+            print(f"文件没有执行权限：{path}")
             sys.exit(1)
         config.config["real_claude_cli_path"] = path
         config.save_config()

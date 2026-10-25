@@ -77,6 +77,7 @@ def _cask_binaries():
 
 def _native_binaries():
     patterns = [
+        os.path.join(HOME, ".local", "share", "claude", "versions", "*"),
         os.path.join(HOME, ".local", "share", "claude", "versions", "*", "claude"),
         os.path.join(HOME, ".local", "share", "claude", "*", "claude"),
         os.path.join(HOME, ".local", "share", "claude", "claude"),
