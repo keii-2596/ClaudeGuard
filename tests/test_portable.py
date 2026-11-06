@@ -115,6 +115,9 @@ class PortableTests(unittest.TestCase):
         self.settings.save(self.data)
         child = start_daemon(self.settings)
         def cleanup():
+            process = daemon_process(self.settings)
+            if process:
+                stop_tree(process)
             if child.poll() is None:
                 child.kill()
             child.wait(timeout=5)
@@ -124,7 +127,9 @@ class PortableTests(unittest.TestCase):
             time.sleep(0.05)
         process = daemon_process(self.settings)
         self.assertIsNotNone(process)
-        self.assertEqual(process.pid, child.pid)
+        # Windows venv pythonw.exe may redirect to a child Python process.
+        child_pids = [p.pid for p in psutil.Process(child.pid).children(recursive=True)]
+        self.assertIn(process.pid, [child.pid, *child_pids])
         self.assertIsNone(start_daemon(self.settings))
         state = json.loads(self.settings.path.with_name('portable-state.json').read_text())
         self.assertEqual(state['state'], 'disabled')
@@ -169,7 +174,7 @@ class PortableTests(unittest.TestCase):
                 autostart(sys.executable, 'C:/test/main.py', self.settings.path, True, system='win32')
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, test_key) as key:
                     value, _ = winreg.QueryValueEx(key, 'ClaudeGuard')
-                    self.assertIn('daemon', value)
+                    self.assertIn('tray --start-guard', value)
                 autostart(sys.executable, 'C:/test/main.py', self.settings.path, False, system='win32')
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, test_key) as key:
                     with self.assertRaises(FileNotFoundError):
