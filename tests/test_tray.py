@@ -6,7 +6,7 @@ import sys
 import unittest
 from unittest.mock import Mock, patch
 
-from portable.config import Settings, DEFAULTS
+from portable.config import Settings, DEFAULTS, config_fingerprint
 from portable.tray import snapshot, Tray, stop_tray
 
 
@@ -21,7 +21,7 @@ class TrayTests(unittest.TestCase):
         self.process = Mock(pid=42)
         self.process.create_time.return_value = 123
         self.verdict = dict(state="allowed", ip="203.0.113.10", checked_at=self.now,
-                            pid=42, process_created=123)
+                            pid=42, process_created=123, config_fingerprint=config_fingerprint(self.data))
 
     def read(self, running=True):
         self.settings.path.with_name("portable-state.json").write_text(json.dumps(self.verdict))
@@ -51,6 +51,7 @@ class TrayTests(unittest.TestCase):
     def test_network_helper_must_confirm_allowed(self):
         self.data["network_guard_enabled"] = True
         self.settings.save(self.data)
+        self.verdict["config_fingerprint"] = config_fingerprint(self.data)
         self.assertEqual(self.read()["state"], "error")
         self.verdict["network"] = {"ready": True, "applied_state": "allowed"}
         self.assertEqual(self.read()["state"], "allowed")
@@ -75,6 +76,8 @@ class TrayTests(unittest.TestCase):
         with patch("portable.tray.psutil.Process", return_value=self.process), patch("portable.tray.stop_tree") as stop:
             stop_tray(self.settings)
             stop.assert_not_called()
+            self.process.terminate.assert_not_called()
+            self.process.kill.assert_not_called()
 
     @unittest.skipUnless(sys.platform == "win32", "Windows tray backend")
     def test_menu_actions_are_queued_and_heartbeat_does_not_rebuild_menu(self):

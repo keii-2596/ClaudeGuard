@@ -11,7 +11,7 @@ import time
 
 import psutil
 
-from portable.config import atomic_json
+from portable.config import atomic_json, config_fingerprint
 from portable.platforms import autostart, stop_tree
 from portable.runtime import InstanceLock, check, daemon_process, start_daemon
 
@@ -35,7 +35,9 @@ def snapshot(settings, now=None):
             modified = settings.path.stat().st_mtime if settings.path.exists() else 0
             if (result.get("pid") != process.pid or
                     abs(result.get("process_created", 0) - process.create_time()) >= .001 or
-                    age < 0 or age > max(30, data["check_interval"] + 20) or checked < modified):
+                    age < 0 or age > max(30, data["check_interval"] + 20) or checked < modified or
+                    (result.get("state") == "allowed" and
+                     result.get("config_fingerprint") != config_fingerprint(data))):
                 result = {"state": "waiting", "ip": None}
             elif result.get("enforcement_errors"):
                 result = {**result, "state": "error"}
@@ -66,7 +68,12 @@ def stop_tray(settings):
         state = json.loads(settings.path.with_name("tray-state.json").read_text(encoding="utf-8"))
         process = psutil.Process(state["pid"])
         if abs(process.create_time() - state["process_created"]) < .001:
-            stop_tree(process)
+            # The daemon can be a child of the tray; never terminate its tree.
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except psutil.TimeoutExpired:
+                process.kill()
     except (OSError, ValueError, KeyError, psutil.NoSuchProcess):
         pass
 
