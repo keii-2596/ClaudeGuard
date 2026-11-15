@@ -10,7 +10,7 @@ import time
 
 import psutil
 
-from portable.config import atomic_json
+from portable.config import atomic_json, config_fingerprint
 from portable.platforms import enforce, spawn, stop_tree
 from src.ip_checker import perform_ip_check
 from src import policy
@@ -63,6 +63,7 @@ def daemon(settings):
                 if data != last_data and data.get('network_guard_enabled'):
                     network.publish(settings, data, {'state': 'blocked'})
                 last_data = data
+                fingerprint = config_fingerprint(data)
                 verdict = check(data, settings.path.parent)
                 verdict['network'] = network.publish(settings, data, verdict)
                 # Unverified exits also stop protected processes, including on resume.
@@ -70,7 +71,8 @@ def daemon(settings):
                 if verdict["state"] not in ("allowed", "disabled"):
                     errors = enforce([data["cli_path"], data["desktop_path"]])
                 verdict.update({"pid": os.getpid(), "process_created": psutil.Process().create_time(),
-                                "checked_at": time.time(), "mode": data["ip_check_mode"], "enforcement_errors": errors})
+                                "checked_at": time.time(), "config_fingerprint": fingerprint,
+                                "mode": data["ip_check_mode"], "enforcement_errors": errors})
                 atomic_json(state_path, verdict)
                 event = (verdict["state"], verdict["ip"], tuple(errors))
                 if event != previous:

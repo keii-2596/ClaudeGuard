@@ -63,6 +63,7 @@ def autostart(python, entry, config_path, enabled, system=None):
     system = system or sys.platform
     command = [str(python), str(entry), "--config", str(config_path), "daemon"]
     if system == "win32":
+        command[-1:] = ["tray", "--start-guard"]
         import winreg
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run") as key:
             if enabled:

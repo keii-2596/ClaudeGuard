@@ -1,1 +1,3 @@
 psutil>=7.0,<8
+pystray>=0.19.5,<0.20; sys_platform == "win32"
+Pillow>=10,<13; sys_platform == "win32"

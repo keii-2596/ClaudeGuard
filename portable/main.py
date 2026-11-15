@@ -26,6 +26,9 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("gui", "daemon", "start", "stop", "status", "check"):
         sub.add_parser(name)
+    tray = sub.add_parser("tray", help="Windows 系统托盘控制")
+    tray.add_argument("--start-guard", action="store_true", help="同时启动后台守护")
+    sub.add_parser("tray-stop", help="退出托盘，不停止守护")
     edit = sub.add_parser("set", help="修改配置")
     edit.add_argument("key", choices=("ip_check_mode", "cli_path", "desktop_path", "http_proxy", "check_interval", "cli_http_proxy_enabled", "network_guard_enabled", "protection_enabled", "access_mode", "risk_threshold", "risk_cache_ttl", "detect_ip_change"))
     edit.add_argument("value")
@@ -40,7 +43,13 @@ def main():
     args = parser.parse_args()
     settings = Settings(args.config)
     try:
-        if args.command == "network":
+        if args.command in ("tray", "tray-stop"):
+            from portable.tray import show, stop_tray
+            if args.command == "tray-stop":
+                stop_tray(settings)
+            else:
+                show(settings, start_guard=args.start_guard)
+        elif args.command == "network":
             if args.action == 'status':
                 print(json.dumps(network.status(settings), ensure_ascii=False, indent=2))
             else:

@@ -27,7 +27,13 @@ Windows/Linux 版使用 Python 实现，提供中文设置窗口、出口检测�
 .\scripts\install-windows.ps1
 ```
 
-安装器会在 `%LOCALAPPDATA%\ClaudeGuard` 创建独立虚拟环境，安装 psutil，并在桌面创建 ClaudeGuard 快捷方式。双击快捷方式打开设置窗口。
+安装器会在 `%LOCALAPPDATA%\ClaudeGuard` 创建独立虚拟环境，安装 psutil、pystray 和 Pillow，并在桌面创建 ClaudeGuard 快捷方式。双击快捷方式启动 Windows 系统托盘控制器；右键托盘盾牌打开菜单，双击盾牌打开设置。
+
+托盘提供守护状态、当前出口、手动检测、防护开关、HTTP/STUN 检测方式、访问规则、IP 跳变开关、设置与日志入口。绿色表示守护最近一轮检测通过；红色表示拦截或异常；黄色表示等待检测或无法确认出口；灰色表示守护未运行或防护关闭。手动检测结果单独显示，不代表后台守护正在运行。
+
+首次启动托盘不会自动启动守护。先配置可信出口和程序路径，再选择“启动守护”。关闭设置窗口不会退出托盘；“退出托盘（保留守护）”不会停止后台防护。停止守护需使用独立的“停止守护”菜单项；若已安装系统网络助手，停止守护后放行凭据到期仍会恢复阻断。
+
+Windows 登录自启动现在启动托盘并请求启动守护，Linux 仍仅启动守护。已有安装需重新开启一次登录自启动以更新入口。命令行可用 `tray` 启动托盘、`tray --start-guard` 同时启动守护、`tray-stop` 仅退出托盘；`gui` 仍可单独打开设置。托盘日志为配置目录下的 `tray.log`。
 
 配置文件保存在 `%APPDATA%\ClaudeGuard\config.json`。首次使用需要填写 IP 白名单、检测方式，以及 Claude 原生程序路径。Windows 的 `.cmd`、`.bat`、`.ps1` 启动脚本不受支持，请选择原始 `.exe`。
 
@@ -143,7 +149,7 @@ claudeguard autostart enable
 claudeguard start
 ```
 
-Windows 使用当前用户的 Run 项，Linux 使用 `claudeguard.service` 用户服务，两者都在用户登录后生效。自启动仅启动后台守护，不自动打开设置窗口。Linux 需要可用的 systemd 用户会话。
+Windows 使用当前用户的 Run 项，登录后启动托盘并请求启动守护，不自动打开设置窗口。Linux 使用 `claudeguard.service` 用户服务，登录后仅启动后台守护，需要可用的 systemd 用户会话。
 
 停止守护和关闭自启动分别执行：
 

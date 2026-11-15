@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import ipaddress
 import json
 import os
@@ -13,6 +14,12 @@ DEFAULTS = {
     "check_interval": 3, "cli_path": "", "desktop_path": "",
     "http_proxy": "", "cli_http_proxy_enabled": False, "network_guard_enabled": False,
 }
+
+
+def config_fingerprint(data):
+    """Identify the exact effective settings used by a check, without storing secrets."""
+    payload = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def default_path():
