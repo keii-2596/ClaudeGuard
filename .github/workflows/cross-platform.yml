@@ -24,6 +24,8 @@ jobs:
         run: xvfb-run -a python -m unittest discover -s tests -v
       - name: Windows and macOS tests
         if: runner.os != 'Linux'
+        env:
+          PYTHONIOENCODING: utf-8
         run: python -m unittest discover -s tests -v
       - name: Linux installer syntax
         if: runner.os == 'Linux'
